@@ -1057,7 +1057,7 @@ final public class ParamModelChecker extends PrismComponent
 	 */
 	private RegionValues checkRewardPathFormula(ParamModel model, ParamRewardStruct rew, Expression expr, boolean min, BitSet needStates) throws PrismException
 	{
-		if (Expression.isReach(expr)) {
+		if (Expression.isReachWithStateFormula(expr)) {
 			return checkRewardReach(model, rew, (ExpressionTemporal) expr, min, needStates);
 		} else if (Expression.isCoSafeLTLSyntactic(expr, true)) {
 			throw new PrismNotSupportedException(mode.Engine() + " does not yet support co-safe reward computation");
