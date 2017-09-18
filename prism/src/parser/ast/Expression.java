@@ -975,9 +975,10 @@ public abstract class Expression extends ASTElement
 		}
 		// Check temporal operators
 		try {
-			ASTTraverse astt = new ASTTraverse()
+			ASTTraverse astt = new ExpressionTraverseLTL()
 			{
-				public void visitPost(ExpressionTemporal e) throws PrismLangException
+				@Override
+				public void visitLTL(ExpressionTemporal e) throws PrismLangException
 				{
 					if (e.getOperator() == ExpressionTemporal.P_X)
 						return;
@@ -986,6 +987,18 @@ public abstract class Expression extends ASTElement
 					if (e.getOperator() == ExpressionTemporal.P_U)
 						return;
 					throw new PrismLangException("Found non-X/F/U", e);
+				}
+
+				@Override
+				public void visitLTL(ExpressionBinaryOp e) throws PrismLangException
+				{
+					// ignore
+				}
+
+				@Override
+				public void visitLTL(ExpressionUnaryOp e) throws PrismLangException
+				{
+					// ignore
 				}
 			};
 			expr.accept(astt);
