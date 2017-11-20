@@ -49,6 +49,7 @@ import parser.type.TypeDouble;
 import parser.type.TypePathBool;
 import parser.type.TypePathDouble;
 import prism.IntegerBound;
+import prism.ModelType;
 import prism.OpRelOpBound;
 import prism.PrismComponent;
 import prism.PrismException;
@@ -871,7 +872,9 @@ public class ProbModelChecker extends NonProbModelChecker
 		// Build rewards
 		int r = expr.getRewardStructIndexByIndexObject(modelInfo, constantValues);
 		mainLog.println("Building reward structure...");
-		Rewards rewards = constructRewards(model, r);
+		// we allow negative (and positive) rewards for DTMCs
+		boolean allowNegative = model.getModelType() == ModelType.DTMC;
+		Rewards rewards = constructRewards(model, r, allowNegative);
 
 		// Compute rewards
 		StateValues rews = checkRewardFormula(model, rewards, expr.getExpression(), minMax, statesOfInterest);
@@ -1271,7 +1274,10 @@ public class ProbModelChecker extends NonProbModelChecker
 		int numStates = model.getNumStates();
 		int nonZeroRews = 0;
 
-		Rewards modelRewards = constructRewards(model, r);
+		// we allow negative (and positive) rewards for DTMCs
+		boolean allowNegative = model.getModelType() == ModelType.DTMC;
+
+		Rewards modelRewards = constructRewards(model, r, allowNegative);
 		switch (model.getModelType()) {
 		case DTMC:
 		case CTMC:

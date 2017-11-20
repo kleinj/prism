@@ -108,6 +108,7 @@ public class STPGRewardsSimple extends MDPRewardsSimple implements STPGRewards
 		}
 		// Set reward
 		list2.set(j, r);
+		updateFlags(r);
 	}
 
 	/**

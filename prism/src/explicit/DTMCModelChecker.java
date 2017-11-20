@@ -41,6 +41,7 @@ import parser.ast.Declaration;
 import parser.ast.DeclarationIntUnbounded;
 import parser.ast.Expression;
 import prism.OptionsIntervalIteration;
+import prism.Pair;
 import prism.Prism;
 import prism.PrismComponent;
 import prism.PrismException;
@@ -58,6 +59,7 @@ import explicit.LTLModelChecker.LTLProduct;
 import explicit.modelviews.DTMCAlteredDistributions;
 import explicit.modelviews.MDPFromDTMC;
 import explicit.rewards.MCRewards;
+import explicit.rewards.MCRewardsPositive;
 import explicit.rewards.MDPRewards;
 import explicit.rewards.Rewards;
 
@@ -351,6 +353,10 @@ public class DTMCModelChecker extends ProbModelChecker
 
 		if (getDoIntervalIteration()) {
 			throw new PrismNotSupportedException("Interval iteration for total rewards is currently not supported");
+		}
+
+		if (mcRewards.hasNegativeRewards()) {
+			throw new PrismNotSupportedException("Total reward computation in DTMC with negative rewards is currently not supported");
 		}
 
 		// Switch to a supported method, if necessary
@@ -1335,19 +1341,21 @@ public class DTMCModelChecker extends ProbModelChecker
 	}
 
 	/**
-	 * Compute upper bound for maximum expected reward, using the variant specified in the settings.
+	 * Compute upper and/or lower bound for maximum expected reward, using the variant specified in the settings.
 	 * @param dtmc the model
 	 * @param mcRewards the rewards
+	 * @param upper compute upper bound?
+	 * @param lower compute lower bound?
 	 * @param target the target states
 	 * @param unknown the states that are not target or infinity states
 	 * @param inf the infinity states
-	 * @return upper bound on R=?[ F target ] for all states
+	 * @return pair of upper (first) and lower (second) bounds on R=?[ F target ] for all states
 	 */
-	double computeReachRewardsUpperBound(DTMC dtmc, MCRewards mcRewards, BitSet target, BitSet unknown, BitSet inf) throws PrismException
+	Pair<Double,Double> computeReachRewardsBound(DTMC dtmc, MCRewards mcRewards, boolean upper, boolean lower, BitSet target, BitSet unknown, BitSet inf) throws PrismException
 	{
 		if (unknown.isEmpty()) {
-			mainLog.println("Skipping upper bound computation, no unknown states...");
-			return 0;
+			mainLog.println("Skipping bound computation, no unknown states...");
+			return new Pair<Double,Double>(0.0,0.0);
 		}
 
 		// inf and target states become trap states (with self-loops)
@@ -1355,21 +1363,47 @@ public class DTMCModelChecker extends ProbModelChecker
 		trapStates.or(inf);
 		DTMCAlteredDistributions cleanedDTMC = DTMCAlteredDistributions.addSelfLoops(dtmc, trapStates);
 
+		double upperBound = 0.0, lowerBound = 0.0;
+		if (upper) {
+			if (mcRewards.hasPositiveRewards()) {
+				MCRewards mcRewPos = mcRewards.hasNegativeRewards() ? new MCRewardsPositive(mcRewards) : mcRewards;
+				upperBound = computeReachRewardsBound(cleanedDTMC, mcRewPos, true, target, unknown, inf);
+			} else {
+				// no positive rewards: upper bound 0.0 is fine
+				mainLog.println("Upper bound for expectation: " + upperBound + " (no positive rewards)");
+			}
+		}
+		if (lower) {
+			if (mcRewards.hasNegativeRewards()) {
+				// negated and then restricted to positive rewards
+				MCRewards mcRewPos = new MCRewardsPositive(mcRewards, true);
+				lowerBound = computeReachRewardsBound(cleanedDTMC, mcRewPos, false, target, unknown, inf);
+			} else {
+				// no positive rewards: lower bound 0.0 is fine
+				mainLog.println("Lower bound for expectation: " + lowerBound + " (no negative rewards)");
+			}
+		}
+		
+		return new Pair<>(upperBound, lowerBound);
+	}
+
+	private double computeReachRewardsBound(DTMC cleanedDTMC, MCRewards mcRewardsPositive, boolean upper, BitSet target, BitSet unknown, BitSet inf) throws PrismException
+	{
 		OptionsIntervalIteration iiOptions = OptionsIntervalIteration.from(this);
 
-		double upperBound = 0.0;
+		double bound = 0.0;
 		String method = null;
 		switch (iiOptions.getBoundMethod()) {
 		case VARIANT_1_COARSE:
-			upperBound = computeReachRewardsUpperBoundVariant1Coarse(cleanedDTMC, mcRewards, target, unknown, inf);
+			bound = computeReachRewardsUpperBoundVariant1Coarse(cleanedDTMC, mcRewardsPositive, upper, target, unknown, inf);
 			method = "variant 1, coarse";
 			break;
 		case VARIANT_1_FINE:
-			upperBound = computeReachRewardsUpperBoundVariant1Fine(cleanedDTMC, mcRewards, target, unknown, inf);
+			bound = computeReachRewardsUpperBoundVariant1Fine(cleanedDTMC, mcRewardsPositive, upper, target, unknown, inf);
 			method = "variant 1, fine";
 			break;
 		case VARIANT_2:
-			upperBound = computeReachRewardsUpperBoundVariant2(cleanedDTMC, mcRewards, target, unknown, inf);
+			bound = computeReachRewardsUpperBoundVariant2(cleanedDTMC, mcRewardsPositive, upper, target, unknown, inf);
 			method = "variant 2";
 			break;
 		case DEFAULT:
@@ -1381,7 +1415,7 @@ public class DTMCModelChecker extends ProbModelChecker
 				@Override
 				public double getStateReward(int s)
 				{
-					return mcRewards.getStateReward(s);
+					return mcRewardsPositive.getStateReward(s);
 				}
 
 				@Override
@@ -1401,20 +1435,41 @@ public class DTMCModelChecker extends ProbModelChecker
 				{
 					return false;
 				}
+
+				@Override
+				public boolean hasPositiveRewards()
+				{
+					return true;
+				}
+
+				@Override
+				public boolean hasNegativeRewards()
+				{
+					return false;
+				}
 			};
-			upperBound = DijkstraSweepMPI.computeUpperBound(this, mdp, mdpRewards, target, unknown);
+			if (!upper) {
+				mainLog.println("Computing lower bound via upper bound for negated negative rewards...");
+			}
+			bound = DijkstraSweepMPI.computeUpperBound(this, mdp, mdpRewards, target, unknown);
 			method = "Dijkstra Sweep MPI";
 			break;
 		}
 		}
 
 		if (method == null) {
-			throw new PrismException("Unknown upper bound heuristic");
+			throw new PrismException("Unknown bound heuristic");
 		}
 
-		mainLog.println("Upper bound for expectation (" + method + "): " + upperBound);
+		if (upper) {
+			mainLog.println("Upper bound for expectation (" + method + "): " + bound);
+		} else {
+			// lower bound: we have to negate to get the actual bound
+			bound = -bound;
+			mainLog.println("Lower bound for expectation (" + method + "): " + bound);
+		}
 
-		return upperBound;
+		return bound;
 	}
 
 	/**
@@ -1423,18 +1478,19 @@ public class DTMCModelChecker extends ProbModelChecker
 	 * Uses Rs = S, i.e., does not take reachability into account.
 	 * @param dtmc the model
 	 * @param mcRewards the rewards
+	 * @param upper computing an upper bound?
 	 * @param target the target states
 	 * @param unknown the states that are not target or infinity states
 	 * @param inf the infinity states
 	 * @return upper bound on R=?[ F target ] for all states
 	 */
-	double computeReachRewardsUpperBoundVariant1Coarse(DTMC dtmc, MCRewards mcRewards, BitSet target, BitSet unknown, BitSet inf) throws PrismException
+	double computeReachRewardsUpperBoundVariant1Coarse(DTMC dtmc, MCRewards mcRewards, boolean upper, BitSet target, BitSet unknown, BitSet inf) throws PrismException
 	{
 		double[] boundsOnExpectedVisits = new double[dtmc.getNumStates()];
 		int[] Ct = new int[dtmc.getNumStates()];
 
 		StopWatch timer = new StopWatch(getLog());
-		timer.start("computing an upper bound for expected reward");
+		timer.start("computing " + (upper ? "an upper" : "a lower") +" bound for expected reward");
 
 		SCCInfo sccs = SCCComputer.computeTopologicalOrdering(this, dtmc, true, null);
 		BitSet trivial = new BitSet();
@@ -1507,7 +1563,7 @@ public class DTMCModelChecker extends ProbModelChecker
 		timer.stop();
 
 		if (OptionsIntervalIteration.from(this).isBoundComputationVerbose()) {
-			mainLog.println("Upper bound for max expectation computation (variant 1, coarse):");
+			mainLog.println((upper ? "Upper" : "Lower") +" bound for max expectation computation (variant 1, coarse):");
 			mainLog.println("p = " + p);
 			mainLog.println("q = " + q);
 			mainLog.println("|Ct| = " + Arrays.toString(Ct));
@@ -1515,7 +1571,7 @@ public class DTMCModelChecker extends ProbModelChecker
 		}
 
 		if (!Double.isFinite(upperBound)) {
-			throw new PrismException("Problem computing an upper bound for the expectation, did not get finite result");
+			throw new PrismException("Problem computing " + (upper ? "an upper" : "a lower") +" bound for the expectation, did not get finite result");
 		}
 
 		return upperBound;
@@ -1527,12 +1583,13 @@ public class DTMCModelChecker extends ProbModelChecker
 	 * Uses Rs = S, i.e., does not take reachability into account.
 	 * @param dtmc the model
 	 * @param mcRewards the rewards
+	 * @param upper computing an upper bound?
 	 * @param target the target states
 	 * @param unknown the states that are not target or infinity states
 	 * @param inf the infinity states
 	 * @return upper bound on R=?[ F target ] for all states
 	 */
-	double computeReachRewardsUpperBoundVariant1Fine(DTMC dtmc, MCRewards mcRewards, BitSet target, BitSet unknown, BitSet inf) throws PrismException
+	double computeReachRewardsUpperBoundVariant1Fine(DTMC dtmc, MCRewards mcRewards, boolean upper, BitSet target, BitSet unknown, BitSet inf) throws PrismException
 	{
 		double[] boundsOnExpectedVisits = new double[dtmc.getNumStates()];
 		double[] qt = new double[dtmc.getNumStates()];
@@ -1540,7 +1597,7 @@ public class DTMCModelChecker extends ProbModelChecker
 		int[] Ct = new int[dtmc.getNumStates()];
 
 		StopWatch timer = new StopWatch(getLog());
-		timer.start("computing an upper bound for expected reward");
+		timer.start("computing " + (upper ? "an upper" : "a lower") + " bound for expected reward");
 
 		SCCInfo sccs = SCCComputer.computeTopologicalOrdering(this, dtmc, true, null);
 		BitSet trivial = new BitSet();
@@ -1612,7 +1669,7 @@ public class DTMCModelChecker extends ProbModelChecker
 		timer.stop();
 
 		if (OptionsIntervalIteration.from(this).isBoundComputationVerbose()) {
-			mainLog.println("Upper bound for max expectation computation (variant 1, fine):");
+			mainLog.println((upper ? "Upper" : "Lower") + " bound for max expectation computation (variant 1, fine):");
 			mainLog.println("pt = " + Arrays.toString(pt));
 			mainLog.println("qt = " + Arrays.toString(qt));
 			mainLog.println("|Ct| = " + Arrays.toString(Ct));
@@ -1620,7 +1677,7 @@ public class DTMCModelChecker extends ProbModelChecker
 		}
 
 		if (!Double.isFinite(upperBound)) {
-			throw new PrismException("Problem computing an upper bound for the expectation, did not get finite result");
+			throw new PrismException("Problem computing " + (upper ? "an upper" : "lower") + " bound for the expectation, did not get finite result");
 		}
 
 		return upperBound;
@@ -1632,18 +1689,19 @@ public class DTMCModelChecker extends ProbModelChecker
 	 * Uses Rs = S, i.e., does not take reachability into account.
 	 * @param dtmc the model
 	 * @param mcRewards the rewards
+	 * @param upper computing an upper bound?
 	 * @param target the target states
 	 * @param unknown the states that are not target or infinity states
 	 * @param inf the infinity states
 	 * @return upper bound on R=?[ F target ] for all states
 	 */
-	double computeReachRewardsUpperBoundVariant2(DTMC dtmc, MCRewards mcRewards, BitSet target, BitSet unknown, BitSet inf) throws PrismException
+	double computeReachRewardsUpperBoundVariant2(DTMC dtmc, MCRewards mcRewards, boolean upper, BitSet target, BitSet unknown, BitSet inf) throws PrismException
 	{
 		double[] dt = new double[dtmc.getNumStates()];
 		double[] boundsOnExpectedVisits = new double[dtmc.getNumStates()];
 
 		StopWatch timer = new StopWatch(getLog());
-		timer.start("computing an upper bound for expected reward");
+		timer.start("computing " + (upper ? "an upper" : "a lower") + " bound for expected reward");
 
 		SCCInfo sccs = SCCComputer.computeTopologicalOrdering(this, dtmc, true, unknown::get);
 
@@ -1701,13 +1759,13 @@ public class DTMCModelChecker extends ProbModelChecker
 		timer.stop();
 
 		if (OptionsIntervalIteration.from(this).isBoundComputationVerbose()) {
-			mainLog.println("Upper bound for max expectation computation (variant 2):");
+			mainLog.println((upper ? "Upper" : "Lower") + " bound for max expectation computation (variant 2):");
 			mainLog.println("d_t = " + Arrays.toString(dt));
 			mainLog.println("ζ* = " + Arrays.toString(boundsOnExpectedVisits));
 		}
 
 		if (!Double.isFinite(upperBound)) {
-			throw new PrismException("Problem computing an upper bound for the expectation, did not get finite result");
+			throw new PrismException("Problem computing " + (upper ? "an upper" : "a lower") + " bound for the expectation, did not get finite result");
 		}
 
 		return upperBound;
@@ -2049,20 +2107,22 @@ public class DTMCModelChecker extends ProbModelChecker
 
 		OptionsIntervalIteration iiOptions = OptionsIntervalIteration.from(this);
 
-		double upperBound;
+		Double upperBound = null, lowerBound = null;
 		if (iiOptions.hasManualUpperBound()) {
 			upperBound = iiOptions.getManualUpperBound();
 			getLog().printWarning("Upper bound for interval iteration manually set to " + upperBound);
-		} else {
-			upperBound = computeReachRewardsUpperBound(dtmc, mcRewards, target, unknown, inf);
 		}
-
-		double lowerBound;
 		if (iiOptions.hasManualLowerBound()) {
 			lowerBound = iiOptions.getManualLowerBound();
 			getLog().printWarning("Lower bound for interval iteration manually set to " + lowerBound);
-		} else {
-			lowerBound = 0.0;
+		}
+		
+		if (upperBound == null || lowerBound == null) {
+			Pair<Double, Double> computedBounds = computeReachRewardsBound(dtmc, mcRewards, upperBound==null, lowerBound==null, target, unknown, inf);
+			if (upperBound == null)
+				upperBound = computedBounds.first;
+			if (lowerBound == null)
+				lowerBound = computedBounds.second;
 		}
 
 		// Start value iteration

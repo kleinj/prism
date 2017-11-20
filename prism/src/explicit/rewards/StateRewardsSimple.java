@@ -39,6 +39,11 @@ public class StateRewardsSimple extends StateRewards
 	/** Arraylist of state rewards **/
 	protected ArrayList<Double> stateRewards;
 
+	/** Flag: has positive rewards */
+	protected boolean hasPositiveRewards = false;
+	/** Flag: has negative rewards */
+	protected boolean hasNegativeRewards = false;
+
 	/**
 	 * Constructor: all zero rewards.
 	 */
@@ -62,6 +67,8 @@ public class StateRewardsSimple extends StateRewards
 				stateRewards.add(rews.stateRewards.get(i));
 			}
 		}
+		hasPositiveRewards = rews.hasPositiveRewards;
+		hasNegativeRewards = rews.hasNegativeRewards;
 	}
 
 	// Mutators
@@ -82,6 +89,20 @@ public class StateRewardsSimple extends StateRewards
 		}
 		// Set reward
 		stateRewards.set(s, r);
+		updateFlags(r);
+	}
+
+	/**
+	 * Update the flags for positive / negative rewards by taking
+	 * value r into account.
+	 */
+	private void updateFlags(double r)
+	{
+		if (r > 0) {
+			hasPositiveRewards = true;
+		} else if (r < 0) {
+			hasNegativeRewards = true;
+		}
 	}
 
 	// Accessors
@@ -94,6 +115,18 @@ public class StateRewardsSimple extends StateRewards
 		} catch (ArrayIndexOutOfBoundsException e) {
 			return 0.0;
 		}
+	}
+
+	@Override
+	public boolean hasPositiveRewards()
+	{
+		return hasPositiveRewards;
+	}
+
+	@Override
+	public boolean hasNegativeRewards()
+	{
+		return hasNegativeRewards;
 	}
 
 	// Converters

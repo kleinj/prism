@@ -67,4 +67,16 @@ public class StateRewardsConstant extends StateRewards
 	{
 		return new StateRewardsConstant(stateReward);
 	}
+
+	@Override
+	public boolean hasPositiveRewards()
+	{
+		return stateReward > 0;
+	}
+
+	@Override
+	public boolean hasNegativeRewards()
+	{
+		return stateReward < 0;
+	}
 }

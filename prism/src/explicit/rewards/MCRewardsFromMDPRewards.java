@@ -71,4 +71,17 @@ public class MCRewardsFromMDPRewards implements MCRewards
 		// only state rewards
 		return false;
 	}
+
+	@Override
+	public boolean hasPositiveRewards()
+	{
+		return mdpRewards.hasPositiveRewards();
+	}
+
+	@Override
+	public boolean hasNegativeRewards()
+	{
+		return mdpRewards.hasNegativeRewards();
+	}
+
 }

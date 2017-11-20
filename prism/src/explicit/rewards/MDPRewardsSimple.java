@@ -45,6 +45,11 @@ public class MDPRewardsSimple implements MDPRewards
 	/** Transition rewards */
 	protected List<List<Double>> transRewards;
 
+	/** Flag: has positive rewards */
+	protected boolean hasPositiveRewards = false;
+	/** Flag: has negative rewards */
+	protected boolean hasNegativeRewards = false;
+
 	/**
 	 * Constructor: all zero rewards.
 	 * @param numStates Number of states
@@ -90,6 +95,8 @@ public class MDPRewardsSimple implements MDPRewards
 				}
 			}
 		}
+		this.hasPositiveRewards = rews.hasPositiveRewards;
+		this.hasNegativeRewards = rews.hasNegativeRewards;
 	}
 
 	// Mutators
@@ -107,6 +114,7 @@ public class MDPRewardsSimple implements MDPRewards
 		}
 		// Set reward
 		stateRewards.set(s, r);
+		updateFlags(r);
 	}
 
 	/**
@@ -145,6 +153,7 @@ public class MDPRewardsSimple implements MDPRewards
 		}
 		// Set reward
 		list.set(i, r);
+		updateFlags(r);
 	}
 
 	/**
@@ -163,6 +172,19 @@ public class MDPRewardsSimple implements MDPRewards
 		setStateReward(s, 0.0);
 		if (transRewards != null && transRewards.size() > s) {
 			transRewards.set(s, null);
+		}
+	}
+	
+	/**
+	 * Update the flags for positive / negative rewards by taking
+	 * value r into account.
+	 */
+	protected void updateFlags(double r)
+	{
+		if (r > 0) {
+			hasPositiveRewards = true;
+		} else if (r < 0) {
+			hasNegativeRewards = true;
 		}
 	}
 
@@ -225,4 +247,17 @@ public class MDPRewardsSimple implements MDPRewards
 	{
 		return transRewards != null;
 	}
+
+	@Override
+	public boolean hasPositiveRewards()
+	{
+		return hasPositiveRewards;
+	}
+
+	@Override
+	public boolean hasNegativeRewards()
+	{
+		return hasNegativeRewards;
+	}
+
 }

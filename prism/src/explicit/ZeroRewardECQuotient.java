@@ -165,6 +165,18 @@ public class ZeroRewardECQuotient
 			{
 				return rewards.hasTransitionRewards();
 			}
+
+			@Override
+			public boolean hasPositiveRewards()
+			{
+				return rewards.hasPositiveRewards();
+			}
+
+			@Override
+			public boolean hasNegativeRewards()
+			{
+				return rewards.hasNegativeRewards();
+			}
 		};
 
 		if (debug) {

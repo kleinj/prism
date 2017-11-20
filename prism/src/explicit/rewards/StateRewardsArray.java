@@ -37,6 +37,11 @@ public class StateRewardsArray extends StateRewards
 	/** Array of state rewards **/
 	protected double stateRewards[] = null;
 	
+	/** Flag: has positive rewards */
+	protected boolean hasPositiveRewards = false;
+	/** Flag: has negative rewards */
+	protected boolean hasNegativeRewards = false;
+	
 	/**
 	 * Constructor: all zero rewards.
 	 * @param numStates Number of states
@@ -60,6 +65,8 @@ public class StateRewardsArray extends StateRewards
 		for (int i = 0; i < numStates; i++) {
 			stateRewards[i] = rews.stateRewards[i];
 		}
+		hasPositiveRewards = rews.hasPositiveRewards;
+		hasNegativeRewards = rews.hasNegativeRewards;
 	}
 
 	// Mutators
@@ -70,6 +77,7 @@ public class StateRewardsArray extends StateRewards
 	public void setStateReward(int s, double r)
 	{
 		stateRewards[s] = r;
+		updateFlags(r);
 	}
 	
 	/**
@@ -77,9 +85,24 @@ public class StateRewardsArray extends StateRewards
 	 */
 	public void addToStateReward(int s, double r)
 	{
-		stateRewards[s] += r;
+		double v;
+		v = stateRewards[s] += r;
+		updateFlags(v);
 	}
-	
+
+	/**
+	 * Update the flags for positive / negative rewards by taking
+	 * value r into account.
+	 */
+	private void updateFlags(double r)
+	{
+		if (r > 0) {
+			hasPositiveRewards = true;
+		} else if (r < 0) {
+			hasNegativeRewards = true;
+		}
+	}
+
 	// Accessors
 	
 	@Override
@@ -87,7 +110,19 @@ public class StateRewardsArray extends StateRewards
 	{
 		return stateRewards[s];
 	}
-	
+
+	@Override
+	public boolean hasPositiveRewards()
+	{
+		return hasPositiveRewards;
+	}
+
+	@Override
+	public boolean hasNegativeRewards()
+	{
+		return hasNegativeRewards;
+	}
+
 	// Converters
 	
 	@Override

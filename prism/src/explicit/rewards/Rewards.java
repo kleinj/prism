@@ -43,4 +43,23 @@ public interface Rewards
 
 	/** Returns true if this reward structure has transition rewards */
 	public boolean hasTransitionRewards();
+
+	/**
+	 * Returns true if this reward structure has positive (>0) rewards.
+	 * <br>
+	 * Note: This information is best-effort. E.g., a reward structure that
+	 * contained a positive reward at some time, which was later on overwritten
+	 * may still return true.
+	 */
+	public boolean hasPositiveRewards();
+
+	/**
+	 * Returns true if this reward structure has negative (&lt;0) rewards.
+	 * <br>
+	 * Note: This information is best-effort. E.g., a reward structure that
+	 * contained a positive reward at some time, which was later on overwritten
+	 * may still return true.
+	 */
+	public boolean hasNegativeRewards();
+
 }
