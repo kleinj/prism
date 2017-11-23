@@ -2500,7 +2500,7 @@ public class NondetModelChecker extends NonProbModelChecker
 					upperBound = iiOptions.getManualUpperBound();
 					getLog().printWarning("Upper bound for interval iteration manually set to " + upperBound);
 				} else {
-					upperBound = ProbModelChecker.computeReachRewardsUpperBound(this, model, tr, sr, trr, b, maybe);
+					upperBound = ProbModelChecker.computeReachRewardsUpperBound(this, model, true, tr, sr, trr, b, maybe);
 				}
 				upper = JDD.ITE(maybe.copy(), JDD.Constant(upperBound), JDD.Constant(0));
 

@@ -45,6 +45,7 @@ import common.StopWatch;
 import jdd.JDD;
 import jdd.JDDNode;
 import jdd.JDDVars;
+import jdd.SanityJDD;
 import mtbdd.PrismMTBDD;
 import parser.ast.Expression;
 import parser.ast.ExpressionFunc;
@@ -1730,6 +1731,9 @@ public class ProbModelChecker extends NonProbModelChecker
 		if (doIntervalIteration) {
 			throw new PrismNotSupportedException("Interval iteration for total rewards is currently not supported");
 		}
+		if (JDD.FindMin(sr) < 0 || JDD.FindMin(trr) < 0) {
+			 throw new PrismNotSupportedException("Total reward computation in the presence of negative rewards is currently not supported");
+		}
 
 		// Compute bottom strongly connected components (BSCCs)
 		SCCComputer sccComputer = prism.getSCCComputer(model);
@@ -1856,6 +1860,77 @@ public class ProbModelChecker extends NonProbModelChecker
 	}
 
 	/**
+	 * Compute upper and/or lower bound for maximum expected reward, using the variant specified in the settings.
+	 * Works for both DTMCs and MDPs.
+	 * @param upper compute upper bound?
+	 * @param lower compute lower bound?
+	 * @param tr the transition relation
+	 * @param stateRewards the state rewards
+	 * @param transRewards the trans rewards
+	 * @param target the target states
+	 * @param unknown the states that are not target or infinity states
+	 * @return upper/lower bounds on R=?[ F target ] for all states
+	 */
+	protected static Pair<Double, Double> computeReachRewardsBounds(PrismComponent parent, Model model, boolean upper, boolean lower, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
+	{
+		double upperBound = 0.0, lowerBound = 0.0;
+
+		if (upper) {
+			if (JDD.FindMin(stateRewards) < 0 || JDD.FindMin(transRewards) < 0) {
+				JDDNode srew_pos = null, trew_pos = null;
+				try {
+					srew_pos = JDD.ITE(JDD.GreaterThan(stateRewards.copy(), 0), stateRewards.copy(), JDD.Constant(0));
+					trew_pos = JDD.ITE(JDD.GreaterThan(transRewards.copy(), 0), transRewards.copy(), JDD.Constant(0));
+					if (srew_pos.equals(JDD.ZERO) && trew_pos.equals(JDD.ZERO)) {
+						// no positive rewards: upper bound 0.0 is fine
+						parent.getLog().println("Upper bound for expectation: " + upperBound + " (no positive rewards)");
+					} else {
+						upperBound = computeReachRewardsUpperBound(parent, model, true, tr, srew_pos, trew_pos, target, maybe);
+					}
+				} finally {
+					if (srew_pos != null) JDD.Deref(srew_pos);
+					if (trew_pos != null) JDD.Deref(trew_pos);
+				}
+			} else {
+				if (stateRewards.equals(JDD.ZERO) && transRewards.equals(JDD.ZERO)) {
+					// no positive rewards: upper bound 0.0 is fine
+					parent.getLog().println("Upper bound for expectation: " + upperBound + " (no positive rewards)");
+				} else {
+					upperBound = computeReachRewardsUpperBound(parent, model, true, tr, stateRewards, transRewards, target, maybe);
+				}
+			}
+		}
+
+		if (lower) {
+			if (JDD.FindMax(stateRewards) > 0 || JDD.FindMax(transRewards) > 0) {
+				JDDNode srew_pos = null, trew_pos = null;
+				try {
+					srew_pos = JDD.ITE(JDD.LessThan(stateRewards.copy(), 0), stateRewards.copy(), JDD.Constant(0));
+					trew_pos = JDD.ITE(JDD.LessThan(transRewards.copy(), 0), transRewards.copy(), JDD.Constant(0));
+					if (srew_pos.equals(JDD.ZERO) && trew_pos.equals(JDD.ZERO)) {
+						// no negative rewards: lower bound 0.0 is fine
+						parent.getLog().println("Lower bound for expectation: " + lowerBound + " (no negative rewards)");
+					} else {
+						lowerBound = computeReachRewardsUpperBound(parent, model, false, tr, srew_pos, trew_pos, target, maybe);
+					}
+				} finally {
+					if (srew_pos != null) JDD.Deref(srew_pos);
+					if (trew_pos != null) JDD.Deref(trew_pos);
+				}
+			} else {
+				if (stateRewards.equals(JDD.ZERO) && transRewards.equals(JDD.ZERO)) {
+					// no negative rewards: lower bound 0.0 is fine
+					parent.getLog().println("Lower bound for expectation: " + lowerBound + " (no negative rewards)");
+				} else {
+					lowerBound = computeReachRewardsUpperBound(parent, model, false, tr, stateRewards, transRewards, target, maybe);
+				}
+			}
+		}
+
+		return new Pair<Double, Double>(upperBound, lowerBound);
+	}
+
+	/**
 	 * Compute upper bound for maximum expected reward, method determined by setting.
 	 * Works for both DTMCs and MDPs.
 	 * @param tr the transition relation
@@ -1865,42 +1940,42 @@ public class ProbModelChecker extends NonProbModelChecker
 	 * @param unknown the states that are not target or infinity states
 	 * @return upper bound on R=?[ F target ] for all states
 	 */
-	protected static double computeReachRewardsUpperBound(PrismComponent parent, Model model, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
+	protected static double computeReachRewardsUpperBound(PrismComponent parent, Model model, boolean upper, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
 	{
-		double upperBound = Double.POSITIVE_INFINITY;
+		double bound = Double.POSITIVE_INFINITY;
 		String method = null;
 		switch (OptionsIntervalIteration.from(parent).getBoundMethod()) {
 		case VARIANT_1_COARSE:
-			upperBound = computeReachRewardsUpperBoundVariant1Coarse(parent, model, tr, stateRewards, transRewards, target, maybe);
+			bound = computeReachRewardsUpperBoundVariant1Coarse(parent, model, upper, tr, stateRewards, transRewards, target, maybe);
 			method = "variant 1, coarse";
 			break;
 		case VARIANT_1_FINE:
-			upperBound = computeReachRewardsUpperBoundVariant1Fine(parent, model, tr, stateRewards, transRewards, target, maybe);
+			bound = computeReachRewardsUpperBoundVariant1Fine(parent, model, upper, tr, stateRewards, transRewards, target, maybe);
 			method = "variant 1, fine";
 			break;
 		case VARIANT_2:
 		case DEFAULT:
-			upperBound = computeReachRewardsUpperBoundVariant2(parent, model, tr, stateRewards, transRewards, target, maybe);
+			bound = computeReachRewardsUpperBoundVariant2(parent, model, upper, tr, stateRewards, transRewards, target, maybe);
 			method = "variant 2";
 			break;
 		case DSMPI:
-			throw new PrismNotSupportedException("Upper bound heuristic Dijkstra Sweep MPI currently not supported for symbolic engines");
+			throw new PrismNotSupportedException("Bound heuristic Dijkstra Sweep MPI currently not supported for symbolic engines");
 		}
 
 		if (method == null) {
-			throw new PrismException("Unsupported upper bound heuristic");
+			throw new PrismException("Unsupported " + (upper ? "upper" : "lower" ) + " bound heuristic");
 		}
 
-		parent.getLog().print("Upper bound for ");
+		parent.getLog().print((upper ? "Upper" : "Lower" ) + " bound for ");
 		if (model.getModelType() == ModelType.MDP)
 			parent.getLog().print("max ");
-		parent.getLog().println("expectation (" + method + "): " + upperBound);
+		parent.getLog().println("expectation (" + method + "): " + bound);
 
-		if (!Double.isFinite(upperBound)) {
-			throw new PrismException("Problem computing an upper bound for the expectation, did not get finite result. Perhaps choose a different method using -intervaliterboundmethod");
+		if (!Double.isFinite(bound)) {
+			throw new PrismException("Problem computing " + (upper ? "an upper" : "a lower" ) + " bound for the expectation, did not get finite result. Perhaps choose a different method using -intervaliterboundmethod");
 		}
 
-		return upperBound;
+		return bound;
 	}
 
 	/**
@@ -1908,6 +1983,7 @@ public class ProbModelChecker extends NonProbModelChecker
 	 * i.e., does not compute separate q_t / p_t per SCC.
 	 * Works for both DTMCs and MDPs.
 	 * Uses Rs = S, i.e., does not take reachability into account.
+	 * @param upper are we computing an upper bound?
 	 * @param tr the transition relation
 	 * @param stateRewards the state rewards
 	 * @param transRewards the trans rewards
@@ -1915,15 +1991,19 @@ public class ProbModelChecker extends NonProbModelChecker
 	 * @param unknown the states that are not target or infinity states
 	 * @return upper bound on R=?[ F target ] / Rmax=?[ F target ] for all states
 	 */
-	protected static double computeReachRewardsUpperBoundVariant1Coarse(PrismComponent parent, Model model, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
+	protected static double computeReachRewardsUpperBoundVariant1Coarse(PrismComponent parent, Model model, boolean upper, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
 	{
 		JDDNode boundsOnExpectedVisits;
 		JDDNode Ct = JDD.Constant(0);
 
 		assert(model.getModelType() == ModelType.DTMC || model.getModelType() == ModelType.MDP);
 
+		if (SanityJDD.enabled) {
+			SanityJDD.check(JDD.FindMin(stateRewards) >= 0 && JDD.FindMin(transRewards) >= 0, "Can compute bounds only for non-negative rewards");
+		}
+
 		StopWatch timer = new StopWatch(parent.getLog());
-		timer.start("computing an upper bound for expected reward");
+		timer.start("computing " + (upper ? "an upper" : "a lower") + " bound for expected reward");
 
 		SCCComputer sccs = SCCComputer.createSCCComputer(parent, model);
 		sccs.computeSCCs(maybe); // only do SCC computation in maybe states
@@ -1999,7 +2079,7 @@ public class ProbModelChecker extends NonProbModelChecker
 		timer.stop();
 
 		if (OptionsIntervalIteration.from(parent).isBoundComputationVerbose()) {
-			parent.getLog().println("Upper bound for max expectation computation (variant 1, coarse):");
+			parent.getLog().println((upper ? "Upper" : "Lower") + " bound for max expectation computation (variant 1, coarse):");
 			parent.getLog().println("p = " + p);
 			parent.getLog().println("q = " + q);
 			StateValuesMTBDD.print(parent.getLog(), Ct.copy(), model, "|Ct|");
@@ -2019,6 +2099,7 @@ public class ProbModelChecker extends NonProbModelChecker
 	 * Compute upper bound for maximum expected reward (variant 1, fine),
 	 * Works for both DTMCs and MDPs.
 	 * Uses Rs = S, i.e., does not take reachability into account.
+	 * @param upper are we computing an upper bound?
 	 * @param tr the transition relation
 	 * @param stateRewards the state rewards
 	 * @param transRewards the trans rewards
@@ -2026,7 +2107,7 @@ public class ProbModelChecker extends NonProbModelChecker
 	 * @param unknown the states that are not target or infinity states
 	 * @return upper bound on R=?[ F target ] / Rmax=?[ F target ] for all states
 	 */
-	protected static double computeReachRewardsUpperBoundVariant1Fine(PrismComponent parent, Model model, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
+	protected static double computeReachRewardsUpperBoundVariant1Fine(PrismComponent parent, Model model, boolean upper, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
 	{
 		JDDNode boundsOnExpectedVisits;
 		JDDNode Ct = JDD.Constant(0);
@@ -2034,8 +2115,12 @@ public class ProbModelChecker extends NonProbModelChecker
 
 		assert(model.getModelType() == ModelType.DTMC || model.getModelType() == ModelType.MDP);
 
+		if (SanityJDD.enabled) {
+			SanityJDD.check(JDD.FindMin(stateRewards) >= 0 && JDD.FindMin(transRewards) >= 0, "Can compute bounds only for non-negative rewards");
+		}
+
 		StopWatch timer = new StopWatch(parent.getLog());
-		timer.start("computing an upper bound for expected reward");
+		timer.start("computing " + (upper ? "an upper" : "a lower") + " bound for expected reward");
 
 		SCCComputer sccs = SCCComputer.createSCCComputer(parent, model);
 		sccs.computeSCCs(maybe); // only do SCC computation in maybe states
@@ -2109,7 +2194,7 @@ public class ProbModelChecker extends NonProbModelChecker
 		timer.stop();
 
 		if (OptionsIntervalIteration.from(parent).isBoundComputationVerbose()) {
-			parent.getLog().println("Upper bound for max expectation computation (variant 1, fine):");
+			parent.getLog().println((upper ? "Upper" : "Lower") + " bound for max expectation computation (variant 1, fine):");
 			StateValuesMTBDD.print(parent.getLog(), pt.copy(), model, "pt");
 			StateValuesMTBDD.print(parent.getLog(), qt.copy(), model, "qt");
 			StateValuesMTBDD.print(parent.getLog(), Ct.copy(), model, "|Ct|");
@@ -2131,6 +2216,7 @@ public class ProbModelChecker extends NonProbModelChecker
 	/**
 	 * Compute upper bound for maximum expected reward (variant 2),
 	 * Works for both DTMCs and MDPs.
+	 * @param upper are we computing an upper bound?
 	 * @param tr the transition relation
 	 * @param stateRewards the state rewards
 	 * @param transRewards the trans rewards
@@ -2138,14 +2224,18 @@ public class ProbModelChecker extends NonProbModelChecker
 	 * @param unknown the states that are not target or infinity states
 	 * @return upper bound on R=?[ F target ] / Rmax=?[ F target ] for all states
 	 */
-	protected static double computeReachRewardsUpperBoundVariant2(PrismComponent parent, Model model, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
+	protected static double computeReachRewardsUpperBoundVariant2(PrismComponent parent, Model model, boolean upper, JDDNode tr, JDDNode stateRewards, JDDNode transRewards, JDDNode target, JDDNode maybe) throws PrismException
 	{
 		JDDNode boundsOnExpectedVisits;
 
 		assert(model.getModelType() == ModelType.DTMC || model.getModelType() == ModelType.MDP);
 
+		if (SanityJDD.enabled) {
+			SanityJDD.check(JDD.FindMin(stateRewards) >= 0 && JDD.FindMin(transRewards) >= 0, "Can compute bounds only for non-negative rewards");
+		}
+
 		StopWatch timer = new StopWatch(parent.getLog());
-		timer.start("computing an upper bound for expected reward");
+		timer.start("computing " + (upper ? "an upper" : "a lower") + " bound for expected reward");
 
 		SCCComputer sccs = SCCComputer.createSCCComputer(parent, model);
 		sccs.computeSCCs(maybe); // only do SCC computation in maybe states
@@ -2238,7 +2328,7 @@ public class ProbModelChecker extends NonProbModelChecker
 		timer.stop();
 
 		if (OptionsIntervalIteration.from(parent).isBoundComputationVerbose()) {
-			parent.getLog().println("Upper bound for max expectation computation (variant 1, fine):");
+			parent.getLog().println((upper ? "Upper" : "Lower") + " bound for max expectation computation (variant 1, fine):");
 			StateValuesMTBDD.print(parent.getLog(), dt.copy(), model, "dt");
 			StateValuesMTBDD.print(parent.getLog(), boundsOnExpectedVisits.copy(), model, "ζ*");
 		}
@@ -2302,22 +2392,28 @@ public class ProbModelChecker extends NonProbModelChecker
 			if (doIntervalIteration) {
 				OptionsIntervalIteration iiOptions = OptionsIntervalIteration.from(this);
 
-				double upperBound;
+				boolean computeUpper = true, computeLower = true;
+				double upperBound = 0, lowerBound = 0;
+
 				if (iiOptions.hasManualUpperBound()) {
 					upperBound = iiOptions.getManualUpperBound();
 					getLog().printWarning("Upper bound for interval iteration manually set to " + upperBound);
-				} else {
-					upperBound = computeReachRewardsUpperBound(this, model, tr, sr, trr, b, maybe);
+					computeUpper = false;
 				}
-				upper = JDD.ITE(maybe.copy(), JDD.Constant(upperBound), JDD.Constant(0));
 
-				double lowerBound;
 				if (iiOptions.hasManualLowerBound()) {
 					lowerBound = iiOptions.getManualLowerBound();
 					getLog().printWarning("Lower bound for interval iteration manually set to " + lowerBound);
-				} else {
-					lowerBound = 0.0;
+					computeLower = false;
 				}
+
+				if (computeUpper || computeLower) {
+					Pair<Double, Double> bounds = computeReachRewardsBounds(this, model, computeUpper, computeLower, tr, sr, trr, b, maybe);
+					if (computeUpper) upperBound = bounds.first;
+					if (computeLower) lowerBound = bounds.second;
+				}
+
+				upper = JDD.ITE(maybe.copy(), JDD.Constant(upperBound), JDD.Constant(0));
 				lower = JDD.ITE(maybe.copy(), JDD.Constant(lowerBound), JDD.Constant(0));
 			}
 

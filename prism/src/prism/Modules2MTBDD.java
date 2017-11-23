@@ -1968,8 +1968,8 @@ public class Modules2MTBDD
 				if (synch == null) {
 					// restrict rewards to relevant states
 					item = JDD.Apply(JDD.TIMES, states, rewards);
-					// check for negative rewards
-					if ((d = JDD.FindMin(item)) < 0) {
+					// check for negative rewards (if we are not in a DTMC)
+					if (modelType != ModelType.DTMC && (d = JDD.FindMin(item)) < 0) {
 						s = "Reward structure item contains negative rewards (" + d + ").";
 						s += "\nNote that these may correspond to states which are unreachable.";
 						s += "\nIf this is the case, try strengthening the predicate.";
