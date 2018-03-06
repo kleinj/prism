@@ -396,6 +396,29 @@ public class DTMCSparse extends DTMCExplicit
 		}
 	}
 
+	@Override
+	public void vmMultPowerSteadyState(double[] vect, double[] result, double[] diags, double deltaT, OfInt filter)
+	{
+		// Initialise result to 0
+		Arrays.fill(result, 0);
+		// Go through matrix elements (by row)
+		while (filter.hasNext()) {
+			int state = filter.nextInt();
+			// probability on diagonale
+			double diagProb = 1 - deltaT * diags[state];
+			for (int i=rows[state], stop=rows[state+1]; i < stop; i++) {
+				int target  = columns[i];
+				double prob = deltaT * probabilities[i];
+				if (state == target) {
+					diagProb += prob;
+				} else {
+					result[target] += prob * vect[state];
+				}
+			}
+			result[state] += diagProb * vect[state];
+		}
+	}
+
 
 
 	//--- Object ---

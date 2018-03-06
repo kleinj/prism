@@ -31,6 +31,7 @@ import java.util.Map.Entry;
 import java.util.PrimitiveIterator.OfInt;
 
 import common.IterableStateSet;
+import common.iterable.IterableInt;
 import prism.Pair;
 import prism.PrismException;
 import explicit.rewards.MCRewards;
@@ -717,6 +718,56 @@ public interface DTMC extends Model
 			forEachTransition(i, (s, t, prob) -> {
 				result[t] += prob * vect[s];
 			});
+		}
+	}
+
+	/**
+	 * @see DTMC#vmMultPowerSteadyState(double[], double[], double[], double, OfInt)
+	 */
+	public default void vmMultPowerSteadyState(double vect[], double result[], double[] diags, double deltaT, IterableInt filter)
+	{
+		vmMultPowerSteadyState(vect, result, diags, deltaT, filter.iterator());
+	}
+
+	/**
+	 * Do a vector-matrix multiplication for steady-state computation with the power method.
+	 * <p>
+	 * To guarantee convergence, it applies a precomputation on-the-fly
+	 * that yields the iteration matrix<br/>
+	 * {@code P = (Q * deltaT + I)} where<br/>
+	 * {@code Q} is the generator matrix,
+	 * {@code deltaT} the precomputation factor and
+	 * {@code I} is the the identity matrix.<br/>
+	 * Please refer to <em>"William J. Stewart: Introduction to the Numerical Solution of Markov Chains</em>" p. 124. for details.
+	 *  </p>
+	 * @param vect Vector to multiply by
+	 * @param result Vector to store result in
+	 * @param diags outgoing probabilities/rates for precomputation
+	 * @param deltaT deltaT for precomputation
+	 * @param filter subset of states to consider
+	 */
+	public default void vmMultPowerSteadyState(double vect[], double result[], double[] diags, double deltaT, OfInt filter)
+	{
+		// Initialise result to 0
+		Arrays.fill(result, 0);
+		// Go through matrix elements in filter (by row)
+		while (filter.hasNext()) {
+			int state = filter.nextInt();
+			// incoming probability on diagonale: constant part
+			double diagProb = 1 - deltaT * diags[state];
+			for (Iterator<Entry<Integer, Double>> transitions = getTransitionsIterator(state); transitions.hasNext();) {
+				Entry<Integer, Double> trans = transitions.next();
+				int target  = trans.getKey();
+				double prob = trans.getValue();
+				if (state == target) {
+					// incoming probability on diagonale: actual self-loop
+					diagProb += prob;
+				} else {
+					// incoming probability from other states
+					result[target] += prob * vect[state];
+				}
+			}
+			result[state] += diagProb * vect[state];
 		}
 	}
 }

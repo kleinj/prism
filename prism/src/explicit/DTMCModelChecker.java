@@ -34,12 +34,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.PrimitiveIterator;
+import java.util.PrimitiveIterator.OfInt;
 import java.util.Vector;
 
 import parser.VarList;
 import parser.ast.Declaration;
 import parser.ast.DeclarationIntUnbounded;
 import parser.ast.Expression;
+import prism.ModelType;
 import prism.OptionsIntervalIteration;
 import prism.Prism;
 import prism.PrismComponent;
@@ -2347,12 +2349,27 @@ public class DTMCModelChecker extends ProbModelChecker
 	 * The result will be stored in the relevant portion of a full vector,
 	 * whose size equals the number of states in the DTMC.
 	 * Optionally, pass in an existing vector to be used for this purpose.
+	 * <p>
+	 * The implementation aligns with the code of the other engines (see PM_StochSteadyState.cc).
+	 * To guarantee convergence, the algorithm requires a precomputation
+	 * that yields the iteration matrix<br/>
+	 * {@code P = (Q * deltaT + I)} where<br/>
+	 * {@code Q} is the generator matrix,
+	 * {@code deltaT} the precomputation factor and
+	 * {@code I} is the the identity matrix.<br/>
+	 * Please refer to <em>"William J. Stewart: Introduction to the Numerical Solution of Markov Chains</em>" p. 124. for details.
+	 *  </p>
 	 * @param dtmc The DTMC
-	 * @param bscc The BSCC to be analysed
+	 * @param states The BSCC to be analysed
 	 * @param result Storage for result (ignored if null)
 	 */
-	public ModelCheckerResult computeSteadyStateProbsForBSCC(DTMC dtmc, BitSet bscc, double result[]) throws PrismException
+	public ModelCheckerResult computeSteadyStateProbsForBSCC(DTMC dtmc, BitSet states, double result[]) throws PrismException
 	{
+		if (! dtmc.getModelType().equals(ModelType.DTMC)) {
+			throw new PrismNotSupportedException("DTMCs only supported, but got " + dtmc.getModelType());
+		}
+		IterableBitSet bscc = new IterableBitSet(states);
+
 		// Start value iteration
 		mainLog.println("Starting value iteration...");
 		StopWatch watch = new StopWatch(mainLog).start();
@@ -2364,11 +2381,25 @@ public class DTMCModelChecker extends ProbModelChecker
 		// Use the passed in vector, if present
 		double[] soln = result == null ? new double[numStates] : result;
 		double[] soln2 = new double[numStates];
+		double[] diags = new double[numStates];
+		double maxDiags = 0.0;
 
-		// Initialise solution vectors. Equiprobable for BSCC states.
-		double equiprob = 1.0 / bscc.cardinality();
-		for (int i = bscc.nextSetBit(0); i >= 0; i = bscc.nextSetBit(i + 1))
-			soln[i] = soln2[i] = equiprob;
+		// Initialise vectors solutions and precomputation.
+		double equiprob = 1.0 / states.cardinality();
+		for (OfInt iter = bscc.iterator(); iter.hasNext();) {
+			int state = iter.next();
+			// Equiprobable for BSCC states.
+			soln2[state] = soln[state] = equiprob;
+			// Sum of outgoing transition probabilities/rates
+			double sum = dtmc.reduceTransitions(state, 0.0, (r, s, t, d) -> r + d);
+			// If diagonal is 0 set it to 1, to fix deadlock states on-the-fly 
+			diags[state] = (sum == 0) ? 1 : sum;
+			// Max of outgoing probabilities/rates
+			maxDiags = Math.max(maxDiags, sum);
+		}
+
+		// Compute preconditioning parameter.
+		double deltaT   = 0.99 / maxDiags;
 
 		ExportIterations iterationsExport = null;
 		if (settings.getBoolean(PrismSettings.PRISM_EXPORT_ITERATIONS)) {
@@ -2382,10 +2413,10 @@ public class DTMCModelChecker extends ProbModelChecker
 		boolean done = false;
 		while (!done && iters < maxIters) {
 			iters++;
-			// Matrix-vector multiply
-			dtmc.vmMult(soln, soln2);
+			// Do vector-matrix multiplication with on-the-fly precomputation
+			dtmc.vmMultPowerSteadyState(soln, soln2, diags, deltaT, bscc);
 			// Check termination
-			done = PrismUtils.doublesAreClose(soln, soln2, termCritParam, termCrit == TermCrit.ABSOLUTE);
+			done = PrismUtils.doublesAreClose(soln, soln2, bscc, termCritParam, termCrit == TermCrit.ABSOLUTE);
 			// Swap vectors for next iter
 			double[] tmpsoln = soln;
 			soln = soln2;
@@ -2413,8 +2444,8 @@ public class DTMCModelChecker extends ProbModelChecker
 
 		// Return results
 		ModelCheckerResult res = new ModelCheckerResult();
-		res.soln = soln;
-		res.numIters = iters;
+		res.soln      = soln;
+		res.numIters  = iters;
 		res.timeTaken = watch.elapsedSeconds();
 		return res;
 	}
