@@ -247,8 +247,7 @@ public class PTAModelCheckerCL
 		ArrayList<String> ptaFilesNew = new ArrayList<String>();
 		for (String ptaFile : ptaFiles) {
 			if (ptaFile.endsWith(".deslist")) {
-				try {
-					BufferedReader in = new BufferedReader(new FileReader(new File(ptaFile)));
+				try (BufferedReader in = new BufferedReader(new FileReader(new File(ptaFile)))) { // auto-close
 					while ((s = in.readLine()) != null) {
 						s = s.trim();
 						if (s.equals(""))
