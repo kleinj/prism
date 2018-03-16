@@ -83,10 +83,10 @@ public class ExportResultsThread extends Thread
 					parent.setTaskBarText("Exporting results...");
 			}
 		});
-		
-		try {
+
+		try (PrintWriter out = new PrintWriter(new FileWriter(f))) {  // auto-close
 			int i, n;
-			PrintWriter out = new PrintWriter(new FileWriter(f));
+
 			n = exps.length;
 			for (i = 0; i < n; i++) {
 				if (i > 0)
@@ -104,7 +104,6 @@ public class ExportResultsThread extends Thread
 				}
 			}
 			out.flush();
-			out.close();
 		}
 		catch (Exception e) {
 			SwingUtilities.invokeLater(new Runnable()
