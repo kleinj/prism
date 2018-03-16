@@ -29,6 +29,7 @@
 package automata;
 
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -664,6 +665,9 @@ public class HOAF2DA implements HOAConsumer {
 	{
 		int rv = 0;
 		InputStream input = null;
+		FileInputStream fileInput = null;
+		PrintStream output = null;
+		PrintStream fileOutput = null;
 		try {
 			if (args.length != 2) {
 				System.err.println("Usage: input-file output-file\n\n Filename can be '-' for standard input/output");
@@ -672,15 +676,14 @@ public class HOAF2DA implements HOAConsumer {
 			if (args[0].equals("-")) {
 				input = System.in;
 			} else {
-				input = new FileInputStream(args[0]);
+				input = fileInput = new FileInputStream(args[0]);
 			}
 
-			PrintStream output;
 			String outfile = args[1];
 			if (outfile.equals("-")) {
 				output = System.out;
 			} else {
-				output = new PrintStream(outfile);
+				output = fileOutput = new PrintStream(outfile);
 			}
 
 			DA<BitSet, ? extends AcceptanceOmega> result;
@@ -713,8 +716,15 @@ public class HOAF2DA implements HOAConsumer {
 		} catch (Exception e) {
 			System.err.println(e.toString());
 			rv = 1;
+		} finally {
+			if (fileInput != null)
+				try {
+					fileInput.close();
+				} catch (IOException e) {}
+			if (fileOutput != null)
+				fileOutput.close();
 		}
-		
+
 		if (rv != 0) {
 			System.exit(rv);
 		}

@@ -209,9 +209,9 @@ public class LTL2DA extends PrismComponent
 			File da_file = File.createTempFile("prism-ltl-external-", ".hoa", null);
 			File tool_output = File.createTempFile("prism-ltl-external-", ".output", null);
 
-			FileWriter ltlWriter = new FileWriter(ltl_file);
-			ltlWriter.write(ltlOutput);
-			ltlWriter.close();
+			try (FileWriter ltlWriter = new FileWriter(ltl_file)) {
+				ltlWriter.write(ltlOutput);
+			}
 
 			List<String> arguments = new ArrayList<String>();
 			arguments.add(ltl2daTool);
