@@ -1265,8 +1265,7 @@ public abstract class QuantAbstractRefine extends PrismComponent
 			throw new PrismNotSupportedException("Cannot export this model type to a dot file");
 		}
 
-		try {
-			FileWriter out = new FileWriter(filename);
+		try (FileWriter out = new FileWriter(filename)) {  // auto-close
 			out.write("digraph " + "STPG" + " {\nsize=\"8,5\"\nnode [shape=box];\n");
 			for (i = 0; i < stpg.getNumStates(); i++) {
 				if (known.get(i))
@@ -1293,7 +1292,6 @@ public abstract class QuantAbstractRefine extends PrismComponent
 				}
 			}
 			out.write("}\n");
-			out.close();
 		} catch (IOException e) {
 			throw new PrismException("Could not write abstraction to file \"" + filename + "\"" + e);
 		}

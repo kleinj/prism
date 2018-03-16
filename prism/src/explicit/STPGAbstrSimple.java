@@ -151,16 +151,14 @@ public class STPGAbstrSimple extends ModelExplicit implements STPG, NondetModelS
 	@Override
 	public void buildFromPrismExplicit(String filename) throws PrismException
 	{
-		BufferedReader in;
 		Distribution distr;
 		DistributionSet distrs;
 		String s, ss[];
 		int i, j, k1, k2, iLast, k1Last, k2Last, n, lineNum = 0;
 		double prob;
 
-		try {
-			// Open file
-			in = new BufferedReader(new FileReader(new File(filename)));
+		// Open file
+		try (BufferedReader in = new BufferedReader(new FileReader(new File(filename)))) { // auto-close
 			// Parse first line to get num states
 			s = in.readLine();
 			lineNum = 1;
@@ -219,8 +217,6 @@ public class STPGAbstrSimple extends ModelExplicit implements STPG, NondetModelS
 			distrs.add(distr);
 			// Add previous distribution set to the last state
 			addDistributionSet(iLast, distrs);
-			// Close file
-			in.close();
 		} catch (IOException e) {
 			System.out.println(e);
 			System.exit(1);

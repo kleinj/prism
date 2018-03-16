@@ -389,14 +389,12 @@ public class MDPSparse extends MDPExplicit
 	@Override
 	public void buildFromPrismExplicit(String filename) throws PrismException
 	{
-		BufferedReader in;
 		String s, ss[];
 		int i, j, k, iLast, kLast, jCount, kCount, n, lineNum = 0;
 		double prob;
 
-		try {
-			// Open file
-			in = new BufferedReader(new FileReader(new File(filename)));
+		// Open file
+		try (BufferedReader in = new BufferedReader(new FileReader(new File(filename)))) { // auto-close
 			// Parse first line to get num states
 			s = in.readLine();
 			lineNum = 1;
@@ -454,8 +452,6 @@ public class MDPSparse extends MDPExplicit
 			for (i = 0; i < numStates; i++) {
 				maxNumDistrs = Math.max(maxNumDistrs, getNumChoices(i));
 			}
-			// Close file
-			in.close();
 			// Sanity checks
 			if (kCount != numDistrs) {
 				throw new PrismException("Choice count is wrong in tra file (" + kCount + "!=" + numTransitions + ")");

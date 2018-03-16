@@ -627,13 +627,11 @@ public final class FastAdaptiveUniformisation extends PrismComponent
 	 * @throws PrismException thrown in case of I/O errors
 	 */
 	private int countNumStates(File file) throws PrismException {
-		BufferedReader in;
 		String s;
 		int lineNum = 0, count = 0;
 
-		try {
-			// open file for reading
-			in = new BufferedReader(new FileReader(file));
+		// open file for reading
+		try (BufferedReader in = new BufferedReader(new FileReader(file))) { // auto-close
 			// read remaining lines
 			s = in.readLine();
 			lineNum++;
@@ -645,8 +643,6 @@ public final class FastAdaptiveUniformisation extends PrismComponent
 				s = in.readLine();
 				lineNum++;
 			}
-			// close file
-			in.close();
 		} catch (IOException e) {
 			throw new PrismException("File I/O error reading from \"" + file + "\"");
 		} catch (NumberFormatException e) {

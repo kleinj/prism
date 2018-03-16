@@ -107,11 +107,10 @@ public abstract class DTMCExplicit extends ModelExplicit implements DTMC
 	{
 		int i;
 		boolean first;
-		FileWriter out;
 		TreeMap<Integer, Double> sorted;
-		try {
-			// Output transitions to PRISM language file
-			out = new FileWriter(filename);
+
+		// Output transitions to PRISM language file
+		try (FileWriter out = new FileWriter(filename)) { // auto-closed
 			out.write(getModelType().keyword() + "\n");
 			out.write("module M\nx : [0.." + (numStates - 1) + "];\n");
 			sorted = new TreeMap<Integer, Double>();
@@ -137,7 +136,6 @@ public abstract class DTMCExplicit extends ModelExplicit implements DTMC
 				sorted.clear();
 			}
 			out.write("endmodule\n");
-			out.close();
 		} catch (IOException e) {
 			throw new PrismException("Could not export " + getModelType() + " to file \"" + filename + "\"" + e);
 		}

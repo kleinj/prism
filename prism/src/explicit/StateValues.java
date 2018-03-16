@@ -1250,14 +1250,12 @@ public class StateValues implements StateVector
 	 */
 	public void readFromFile(File file) throws PrismException
 	{
-		BufferedReader in;
 		String s;
 		int lineNum = 0, count = 0;
 		boolean hasIndices = false;
 
-		try {
-			// Open file for reading
-			in = new BufferedReader(new FileReader(file));
+		// Open file for reading
+		try (BufferedReader in = new BufferedReader(new FileReader(file))) { // auto-close
 			// Read remaining lines
 			s = in.readLine();
 			lineNum++;
@@ -1291,8 +1289,6 @@ public class StateValues implements StateVector
 				s = in.readLine();
 				lineNum++;
 			}
-			// Close file
-			in.close();
 			// Check size
 			if (!hasIndices && count < size)
 				throw new PrismException("Too few values in file \"" + file + "\" (" + count + ", not " + size + ")");
