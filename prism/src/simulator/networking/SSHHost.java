@@ -682,10 +682,7 @@ public class SSHHost extends Thread implements SettingOwner, TreeNode
 						// do the scp call
 						SSHHandler.scp(getUserName(), getHostName(), parameters);
 						
-						try
-						{
-							
-							BufferedReader reader = new BufferedReader(new FileReader(localFeedback));
+						try (BufferedReader reader = new BufferedReader(new FileReader(localFeedback))) { // auto-close
 							int done = Integer.parseInt(reader.readLine());
 							int total = Integer.parseInt(reader.readLine());
 							int finished = Integer.parseInt(reader.readLine());

@@ -49,10 +49,8 @@ public class SimulatorResultsFile extends Observable
 	
 	public synchronized void mergeResultsFile(File resultFile) throws PrismException
 	{
-		try
+		try (BufferedReader buff = new BufferedReader(new FileReader(resultFile))) // auto-close
 		{
-			BufferedReader buff = new BufferedReader(new FileReader(resultFile));
-			
 			int counter = 0;
 			while(buff.ready())
 			{
