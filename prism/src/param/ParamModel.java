@@ -30,13 +30,17 @@ import java.io.File;
 import java.util.BitSet;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.Map.Entry;
 import java.util.TreeSet;
 
 import parser.Values;
+import prism.ModelRepresentation;
 import prism.ModelType;
 import prism.PrismException;
 import prism.PrismLog;
+import prism.PrismUtils;
 import strat.MDStrategy;
 import explicit.MDPGeneric;
 import explicit.Model;
@@ -75,17 +79,34 @@ public final class ParamModel extends ModelExplicit implements MDPGeneric<Functi
 	private ModelType modelType;
 	/** function factory which manages functions used on transitions, etc. */
 	private FunctionFactory functionFactory;
+	/** the model builder (with meta-data about the context) used to build this model */
+	private ModelBuilder modelBuilder;
+	/** the mode for this model (exact or parametric?) */
+	private ParamMode mode;
 
 	/**
 	 * Constructs a new parametric model.
 	 */
-	ParamModel()
+	ParamModel(ParamMode mode)
 	{
 		numStates = 0;
 		numTotalChoices = 0;
 		numTotalTransitions = 0;
 		initialStates = new LinkedList<Integer>();
 		deadlocks = new TreeSet<Integer>();
+		this.mode = mode;
+	}
+
+	@Override
+	public ModelRepresentation getModelRepresentation()
+	{
+		switch (mode) {
+		case EXACT:
+			return ModelRepresentation.EXPLICIT_EXACT;
+		case PARAMETRIC:
+			return ModelRepresentation.EXPLICIT_PARAMETRIC;
+		}
+		throw new RuntimeException("Unknown mode");
 	}
 
 	/**
@@ -104,6 +125,11 @@ public final class ParamModel extends ModelExplicit implements MDPGeneric<Functi
 	public ModelType getModelType()
 	{
 		return modelType;
+	}
+
+	public ParamMode getModelMode()
+	{
+		return mode;
 	}
 
 	@Override
@@ -265,24 +291,6 @@ public final class ParamModel extends ModelExplicit implements MDPGeneric<Functi
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(String filename) throws PrismException
-	{
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void exportToPrismExplicitTra(File file) throws PrismException
-	{
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void exportToPrismExplicitTra(PrismLog log)
-	{
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public void exportTransitionsToDotFile(int i, PrismLog out, Iterable<explicit.graphviz.Decorator> decorators)
 	{
 		int numChoices = getNumChoices(i);
@@ -344,6 +352,58 @@ public final class ParamModel extends ModelExplicit implements MDPGeneric<Functi
 			}
 		}
 	}
+	
+	@Override
+	public void exportToPrismExplicitTra(PrismLog out, int exportType)
+	{
+	    // TODO: handle ROWS export
+		int i, j, numChoices;
+		Object action;
+		TreeMap<Integer, Function> sorted;
+		boolean isMDP = (modelType == ModelType.MDP);
+		// Output transitions to .tra file
+		if (isMDP) {
+			out.print(numStates + " " + getNumChoices() + " " + getNumTransitions() + "\n");
+		} else {
+			out.print(numStates + " " + getNumTransitions() + "\n");
+		}
+		sorted = new TreeMap<Integer, Function>();
+		for (i = 0; i < numStates; i++) {
+			numChoices = getNumChoices(i);
+			for (j = 0; j < numChoices; j++) {
+				// Extract transitions and sort by destination state index (to match PRISM-exported files)
+				Iterator<Entry<Integer, Function>> iter = getTransitionsIterator(i, j);
+				while (iter.hasNext()) {
+					Entry<Integer, Function> e = iter.next();
+					Function prev = sorted.put(e.getKey(), e.getValue());
+					if (prev != null) {
+						sorted.put(e.getKey(), prev.add(e.getValue()));
+					}
+				}
+				// Print out (sorted) transitions
+				for (Map.Entry<Integer, Function> e : sorted.entrySet()) {
+					if (isMDP) {
+						out.print(i + " " + j + " " + e.getKey() + " ");
+					} else {
+						out.print(i + " " + e.getKey() + " ");
+					}
+					switch (mode) {
+					case EXACT:
+						out.print(e.getValue().asBigRational());
+						break;
+					case PARAMETRIC:
+						out.print(e.getValue());
+						break;
+					}
+					// action = getAction(i, j);
+					// out.print(action == null ? "\n" : (" " + action + "\n"));
+					out.println();
+				}
+				sorted.clear();
+			}
+		}
+	}
+
 
 	@Override
 	public void exportToDotFileWithStrat(PrismLog out, BitSet mark, int[] strat)
@@ -599,7 +659,8 @@ public final class ParamModel extends ModelExplicit implements MDPGeneric<Functi
 	 */
 	ParamModel instantiate(Point point, boolean checkWellDefinedness)
 	{
-		ParamModel result = new ParamModel();
+		// resulting model is exact, as it's instantiated
+		ParamModel result = new ParamModel(ParamMode.EXACT);
 		result.setModelType(getModelType());
 		result.reserveMem(numStates, numTotalChoices, numTotalTransitions);
 		result.initialStates = new LinkedList<Integer>(this.initialStates);
@@ -637,11 +698,11 @@ public final class ParamModel extends ModelExplicit implements MDPGeneric<Functi
 	/**
 	 * Sets the function factory to be used in this parametric model.
 	 * 
-	 * @param functionFactory function factory to be used in this parametric model
+	 * @param functionFactory2 function factory to be used in this parametric model
 	 */
-	void setFunctionFactory(FunctionFactory functionFactory)
+	void setFunctionFactory(FunctionFactory functionFactory2)
 	{
-		this.functionFactory = functionFactory;
+		this.functionFactory = functionFactory2;
 	}
 
 	/**
@@ -652,6 +713,16 @@ public final class ParamModel extends ModelExplicit implements MDPGeneric<Functi
 	FunctionFactory getFunctionFactory()
 	{
 		return functionFactory;
+	}
+
+	public void setModelBuilder(ModelBuilder modelBuilder)
+	{
+		this.modelBuilder = modelBuilder;
+	}
+	
+	public ModelBuilder getModelBuilder()
+	{
+		return modelBuilder;
 	}
 
 }

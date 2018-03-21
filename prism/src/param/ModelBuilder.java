@@ -61,12 +61,8 @@ public final class ModelBuilder extends PrismComponent
 	private ModelGeneratorSymbolic modelGenSym;
 	/** function factory used in the constructed parametric model */
 	private FunctionFactory functionFactory;
-	/** names of parameters */
-	private String[] paramNames;
-	/** lower bounds of parameters */
-	private BigRational[] lower;
-	/** upper bounds of parameters */
-	private BigRational[] upper;
+	/** the parameters */
+	private Parameters parameters;
 	/** name of function type to use, as read from PRISM settings */
 	private String functionType;
 	/** maximal error probability of DAG function representation */
@@ -87,6 +83,10 @@ public final class ModelBuilder extends PrismComponent
 			functionType = settings.getString(PrismSettings.PRISM_PARAM_FUNCTION);
 			dagMaxError = settings.getDouble(PrismSettings.PRISM_PARAM_DAG_MAX_ERROR);
 		}
+
+		if (mode == ParamMode.EXACT) {
+		    functionType = "BIGRATIONAL";
+		}
 	}
 	
 	/**
@@ -103,12 +103,14 @@ public final class ModelBuilder extends PrismComponent
 	 */
 	public Function expr2function(FunctionFactory factory, Expression expr) throws PrismException
 	{
+		if (factory instanceof BigRationalConstFunctionFactory) {
+			BigRational result = expr.evaluateExact();
+			return factory.fromBigRational(result);
+		}
+
 		if (expr instanceof ExpressionLiteral) {
-			String exprString = ((ExpressionLiteral) expr).getString();
-			if (exprString == null || exprString.equals("")) {
-				throw new PrismException("cannot convert from literal " + "for which no string is set");
-			}
-			return factory.fromBigRational(new BigRational(exprString));
+			BigRational value = ((ExpressionLiteral)expr).evaluateExact();
+			return factory.fromBigRational(value);
 		} else if (expr instanceof ExpressionConstant) {
 			String exprString = ((ExpressionConstant) expr).getName();
 			if (modelGenSym.getConstantValues().contains(exprString)) {
@@ -157,7 +159,7 @@ public final class ModelBuilder extends PrismComponent
 					// non-parametric constants and state variable values have
 					// been already partially expanded, so if this evaluation
 					// succeeds there are no parametric constants involved
-					boolean ifValue = iteExpr.getOperand1().evaluateBoolean();
+					boolean ifValue = iteExpr.getOperand1().evaluateExact().toBoolean();
 					if (ifValue) {
 						return expr2function(factory, iteExpr.getOperand2());
 					} else {
@@ -189,12 +191,11 @@ public final class ModelBuilder extends PrismComponent
 	}
 
 	/**
-	 * Get the parameter names as a list of strings.
-	 * @return the parameter names
+	 * Get the parameters.
 	 */
-	public List<String> getParameterNames()
+	public Parameters getParameters()
 	{
-		return Arrays.asList(paramNames);
+		return parameters;
 	}
 
 	/**
@@ -202,11 +203,9 @@ public final class ModelBuilder extends PrismComponent
 	 * All of {@code paramNames}, {@code lower}, {@code} upper must have the same length,
 	 * and {@code lower} bounds of parameters must not be higher than {@code upper} bounds.
 	 * @param modelGenSym The ModelGeneratorSymbolic interface providing the model 
-	 * @param paramNames names of parameters
-	 * @param lowerStr lower bounds of parameters
-	 * @param upperStr upper bounds of parameters
+	 * @param parameters the information about the parameters (name, lower, upper bound)
 	 */
-	public ParamModel constructModel(ModelGeneratorSymbolic modelGenSym, String[] paramNames, String[] lowerStr, String[] upperStr) throws PrismException
+	public ParamModel constructModel(ModelGeneratorSymbolic modelGenSym, Parameters parameters) throws PrismException
 	{
 		// No model construction for PTAs
 		if (modelGenSym.getModelType() == ModelType.PTA) {
@@ -215,21 +214,19 @@ public final class ModelBuilder extends PrismComponent
 
 		// Store model generator and parameter info
 		this.modelGenSym = modelGenSym;
-		this.paramNames = paramNames;
-		lower = new BigRational[lowerStr.length];
-		upper = new BigRational[upperStr.length];
-		for (int param = 0; param < lowerStr.length; param++) {
-			lower[param] = new BigRational(lowerStr[param]);
-			upper[param] = new BigRational(upperStr[param]);
-		}
+		this.parameters = parameters;
 		
 		// Create function factory
 		if (functionType.equals("JAS")) {
-			functionFactory = new JasFunctionFactory(paramNames, lower, upper);
+			functionFactory = new JasFunctionFactory(parameters);
 		} else if (functionType.equals("JAS-cached")) {
-			functionFactory = new CachedFunctionFactory(new JasFunctionFactory(paramNames, lower, upper));
+			functionFactory = new CachedFunctionFactory(new JasFunctionFactory(parameters));
 		} else if (functionType.equals("DAG")) {
-			functionFactory = new DagFunctionFactory(paramNames, lower, upper, dagMaxError, false);
+			functionFactory = new DagFunctionFactory(parameters, dagMaxError, false);
+		} else if (functionType.equals("BIGRATIONAL")) {
+			functionFactory = BigRationalConstFunctionFactory.getInstance();
+		} else {
+			throw new PrismException("Unknown function type: " + functionType);
 		}
 		// And pass it to the model generator
 		modelGenSym.setSymbolic(this, functionFactory);
@@ -251,13 +248,8 @@ public final class ModelBuilder extends PrismComponent
 		});*/
 		
 		// Build/return model
-		mainLog.print("\nBuilding model (" + mode.engine() + ")...\n");
-		long time = System.currentTimeMillis();
 		ParamModel modelExpl = doModelConstruction(modelGenSym);
-		time = System.currentTimeMillis() - time;
-		mainLog.print("\n"+modelExpl.infoStringTable());
-		mainLog.println("\nTime for model construction: " + time / 1000.0 + " seconds.");
-		
+
 		return modelExpl;
 	}
 
@@ -339,7 +331,7 @@ public final class ModelBuilder extends PrismComponent
 		mainLog.flush();
 		long timer = System.currentTimeMillis();
 		modelType = modelGenSym.getModelType();
-		ParamModel model = new ParamModel();
+		ParamModel model = new ParamModel(mode);
 		model.setModelType(modelType);
 		if (modelType != ModelType.DTMC && modelType != ModelType.CTMC && modelType != ModelType.MDP) {
 			throw new PrismNotSupportedException("Unsupported model type: " + modelType);
@@ -451,6 +443,7 @@ public final class ModelBuilder extends PrismComponent
 			stateNr++;
 		}
 		model.setFunctionFactory(functionFactory);
+		model.setModelBuilder(this);
 
 		mainLog.println();
 		

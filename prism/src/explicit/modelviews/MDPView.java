@@ -120,8 +120,14 @@ public abstract class MDPView extends ModelView implements MDP, Cloneable
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(final PrismLog out)
+	public void exportToPrismExplicitTra(final PrismLog out, int exportType) throws PrismException
 	{
+		switch (exportType) {
+		case prism.Prism.EXPORT_PLAIN:
+			break;
+		default:
+			throw new PrismException("Unsupported export type");
+		}
 		final int numStates = getNumStates();
 		// Output transitions to .tra file
 		out.print(numStates + " " + getNumChoices() + " " + getNumTransitions() + "\n");

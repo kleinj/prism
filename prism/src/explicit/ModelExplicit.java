@@ -387,7 +387,7 @@ public abstract class ModelExplicit implements Model
 	}
 
 	@Override
-	public abstract void exportToPrismExplicitTra(PrismLog out);
+	public abstract void exportToPrismExplicitTra(PrismLog out, int exportType) throws PrismException;
 
 	@Override
 	public abstract void exportToPrismLanguage(String filename) throws PrismException;

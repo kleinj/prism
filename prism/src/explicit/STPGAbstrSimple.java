@@ -365,8 +365,15 @@ public class STPGAbstrSimple extends ModelExplicit implements STPG, NondetModelS
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(PrismLog out)
+	public void exportToPrismExplicitTra(PrismLog out, int exportType) throws PrismException
 	{
+		switch (exportType) {
+		case prism.Prism.EXPORT_ROWS:
+			break;
+		default:
+			throw new PrismException("Unsupported export type");
+		}
+
 		int i, j, k;
 		TreeMap<Integer, Double> sorted;
 		// Output transitions to .tra file

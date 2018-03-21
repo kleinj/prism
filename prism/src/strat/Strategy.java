@@ -27,6 +27,7 @@
 
 package strat;
 
+import prism.PrismException;
 import prism.PrismLog;
 
 /**
@@ -52,7 +53,7 @@ public interface Strategy
 	/**
 	 * Export the model induced by this strategy to a PrismLog.
 	 */
-	public void exportInducedModel(PrismLog out);
+	public void exportInducedModel(PrismLog out) throws PrismException;
 	
 	/**
 	 * Export the strategy to a dot file (of the model showing the strategy).

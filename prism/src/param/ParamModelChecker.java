@@ -54,8 +54,11 @@
 
 package param;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
+import java.util.Map.Entry;
+import java.util.TreeMap;
 
 import param.Lumper.BisimType;
 import param.StateEliminator.EliminationOrder;
@@ -91,15 +94,15 @@ import parser.type.TypeInt;
 import parser.type.TypePathBool;
 import parser.type.TypePathDouble;
 import prism.ModelType;
+import prism.Pair;
 import prism.PrismComponent;
 import prism.PrismException;
+import prism.PrismLangException;
 import prism.PrismLog;
-import prism.PrismPrintStreamLog;
 import prism.PrismSettings;
 import prism.PrismNotSupportedException;
 import prism.Result;
 import edu.jas.kern.ComputerThreads;
-import explicit.Model;
 
 /**
  * Model checker for parametric Markov models.
@@ -127,9 +130,6 @@ final public class ParamModelChecker extends PrismComponent
 
 	// Verbosity level
 	private int verbosity = 0;
-	
-	private BigRational[] paramLower;
-	private BigRational[] paramUpper;
 
 	private FunctionFactory functionFactory;
 	private RegionFactory regionFactory;
@@ -143,8 +143,6 @@ final public class ParamModelChecker extends PrismComponent
 	private Lumper.BisimType bisimType;
 	private boolean simplifyRegions;
 
-	private ModelBuilder modelBuilder;
-	
 	/**
 	 * Constructor
 	 */
@@ -195,7 +193,7 @@ final public class ParamModelChecker extends PrismComponent
 		simplifyRegions = settings.getBoolean(PrismSettings.PRISM_PARAM_SUBSUME_REGIONS);
 		}
 	}
-	
+
 	// Setters/getters
 
 	/**
@@ -213,12 +211,53 @@ final public class ParamModelChecker extends PrismComponent
 			constantValues.addValues(propertiesFile.getConstantValues());
 	}
 
-	public ParamMode getMode()
+	protected ParamMode getMode()
 	{
 		return mode;
 	}
 
 	// Model checking functions
+
+	public Result check(ParamModel paramModel, Expression expression, ModulesFile currentModulesFile, PropertiesFile propertiesFile) throws PrismException
+	{
+		assert(paramModel.getModelMode().equals(mode));
+		setModulesFileAndPropertiesFile(currentModulesFile, propertiesFile);
+
+		Result result = check(paramModel, expression);
+
+		switch (mode) {
+		case EXACT: {
+			// Convert result of parametric model checking to a single value,
+			// either boolean for boolean properties or a rational for numeric properties
+			// There should be just one region since no parameters are used
+			ParamResult paramResult = (ParamResult) result.getResult();
+			result.setResult(paramResult.getSimpleResult(expression.getType()));
+
+			// Print result to log
+			String resultString = "Result";
+			if (!("Result".equals(expression.getResultName())))
+				resultString += " (" + expression.getResultName().toLowerCase() + ")";
+			resultString += ": " + result.getResultString();
+			mainLog.println("\n" + resultString);
+
+			if (result.getResult() instanceof BigRational) {
+				mainLog.println(" As floating point: " + ((BigRational)result.getResult()).toApproximateString());
+			}
+			break;
+		}
+		case PARAMETRIC: {
+			// Print result to log
+			String resultString = "Result";
+			if (!("Result".equals(expression.getResultName())))
+				resultString += " (" + expression.getResultName().toLowerCase() + ")";
+			resultString += ": " + result.getResultString();
+			mainLog.print("\n" + resultString);
+			break;
+		}
+		}
+
+		return result;
+	}
 
 	/**
 	 * Model check an expression, process and return the result.
@@ -227,7 +266,7 @@ final public class ParamModelChecker extends PrismComponent
 	 * {@link #setModulesFile} and {@link #setPropertiesFile}
 	 * to attach the original model/properties files.
 	 */
-	public Result check(Model model, Expression expr) throws PrismException
+	protected Result check(ParamModel model, Expression expr) throws PrismException
 	{
 		ParamModel paramModel = (ParamModel) model;
 		functionFactory = paramModel.getFunctionFactory();
@@ -265,7 +304,7 @@ final public class ParamModelChecker extends PrismComponent
 		// Store result
 		result = new Result();
 		vals.clearExceptInit();
-		result.setResult(new ParamResult(mode, vals, modelBuilder, functionFactory));
+		result.setResult(new ParamResult(mode, vals, model.getModelBuilder(), functionFactory));
 		
 		/* // Output plot to tex file
 		if (paramLower.length == 2) {
@@ -1078,6 +1117,119 @@ final public class ParamModelChecker extends PrismComponent
 	}
 
 	/**
+	 * Export (non-zero) state rewards for one reward structure of a model.
+	 * @param model The model
+	 * @param r Index of reward structure to export (0-indexed)
+	 * @param exportType The format in which to export
+	 * @param out Where to export
+	 */
+	public void exportStateRewardsToFile(ParamModel model, int r, int exportType, PrismLog out) throws PrismException
+	{
+		RewardStruct rewStruct = modulesFile.getRewardStruct(r);
+
+		int numStates = model.getNumStates();
+		int nonZeroRews = 0;
+
+		ArrayList<Function> srews = constructStateRewards(model, rewStruct);
+
+		for (Function rew : srews) {
+			if (!rew.isZero())
+				nonZeroRews++;
+		}
+
+		out.println(numStates + " " + nonZeroRews);
+		for (int s = 0; s < numStates; s++) {
+			Function rew = srews.get(s);
+			if (!rew.isZero()) {
+				switch (model.getModelMode()) {
+				case EXACT:
+					out.println(s + " " + rew.asBigRational());
+					break;
+				case PARAMETRIC:
+					out.println(s + " " + rew);
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Export (non-zero) transition rewards for one reward structure of a model.
+	 * @param model The model
+	 * @param r Index of reward structure to export (0-indexed)
+	 * @param exportType The format in which to export
+	 * @param out Where to export
+	 */
+	public void exportTransitionRewardsToFile(ParamModel model, int r, int exportType, PrismLog out) throws PrismException
+	{
+		RewardStruct rewStruct = modulesFile.getRewardStruct(r);
+
+		int numStates = model.getNumStates();
+		int nonZeroRews = 0;
+
+		if (model.getModelType().equals(ModelType.MDP)) {
+			ArrayList<Function> trews = constructTransitionRewardsMDP(model, rewStruct);
+
+			for (int state = 0; state < numStates; state++) {
+				for (int choice = model.stateBegin(state), choiceIdx = 0; choice < model.stateEnd(state); choice++, choiceIdx++) {
+					Function rew = trews.get(choice);
+					if (!rew.isZero()) {
+						nonZeroRews += model.getNumTransitions(state, choiceIdx);
+					}
+				}
+			}
+
+			out.println(numStates + " " + nonZeroRews);
+			for (int state = 0; state < numStates; state++) {
+				for (int choice = model.stateBegin(state), choiceIdx = 0; choice < model.stateEnd(state); choice++, choiceIdx++) {
+					Function rew = trews.get(choice);
+					if (!rew.isZero()) {
+						for (int succ = model.choiceBegin(choice); succ < model.choiceEnd(choice); succ++) {
+							int successor = model.succState(succ);
+
+							switch (model.getModelMode()) {
+							case EXACT:
+								out.println(state + " " + choiceIdx + " " + successor + " " + rew.asBigRational());
+								break;
+							case PARAMETRIC:
+								out.println(state + " " + choiceIdx + " " + successor + " " + rew);
+								break;
+							}
+						}
+					}
+				}
+			}
+		} else if (model.getModelType().equals(ModelType.CTMC) || model.getModelType().equals(ModelType.DTMC)) {
+			TreeMap<Integer, TreeMap<Integer, Pair<Function, Function>>> trews = constructTransitionRewardsMC(model, rewStruct);
+
+			for (TreeMap<Integer, Pair<Function, Function>> trew : trews.values()) {
+				nonZeroRews += trew.size();
+			}
+
+			out.println(numStates + " " + model.getNumChoices() + " " + nonZeroRews);
+
+			for (Entry<Integer, TreeMap<Integer, Pair<Function, Function>>> entry : trews.entrySet()) {
+				int state = entry.getKey();
+				TreeMap<Integer, Pair<Function, Function>> tRew = entry.getValue();
+
+				for (Entry<Integer, Pair<Function, Function>> entry2 : tRew.entrySet()) {
+					int successor = entry2.getKey();
+					Function rew = entry2.getValue().first.divide(entry2.getValue().second);
+
+					switch (model.getModelMode()) {
+					case EXACT:
+						out.println(state + " " + successor + " " + rew.asBigRational());
+						break;
+					case PARAMETRIC:
+						out.println(state + " " + successor + " " + rew);
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	/**
 	 * Compute rewards for a path formula in a reward operator.
 	 */
 	private RegionValues checkRewardPathFormula(ParamModel model, ParamRewardStruct rew, Expression expr, boolean min, BitSet needStates) throws PrismException
@@ -1111,8 +1263,154 @@ final public class ParamModelChecker extends PrismComponent
 		return valueComputer.computeSteadyState(allTrue, min, rew);
 	}
 
+	public ArrayList<Function> constructStateRewards(ParamModel model, RewardStruct rewStruct) throws PrismException
+	{
+		int numStates = model.getNumStates();
+		List<State> statesList = model.getStatesList();
+
+		ArrayList<Function> srew = new ArrayList<Function>(numStates);
+		for (int i=0; i < model.getNumStates(); i++) {
+			// init with zero
+			srew.add(model.getFunctionFactory().getZero());
+		}
+
+		int numRewItems = rewStruct.getNumItems();
+		for (int rewItem = 0; rewItem < numRewItems; rewItem++) {
+			boolean isTransitionReward = rewStruct.getRewardStructItem(rewItem).isTransitionReward();
+			if (isTransitionReward) {
+				// ignore
+				continue;
+			}
+
+			Expression expr = rewStruct.getReward(rewItem);
+			expr = (Expression) expr.deepCopy().replaceConstants(constantValues);
+			Expression guard = rewStruct.getStates(rewItem);
+
+			for (int state = 0; state < model.getNumStates(); state++) {
+				if (guard.evaluateExact(constantValues, statesList.get(state)).toBoolean()) {
+					int[] varMap = new int[statesList.get(0).varValues.length];
+					for (int i = 0; i < varMap.length; i++) {
+						varMap[i] = i;
+					}
+					Expression exprState = (Expression) expr.deepCopy().evaluatePartially(statesList.get(state), varMap);
+					Function newReward = model.getModelBuilder().expr2function(model.getFunctionFactory(), exprState);
+					srew.set(state, srew.get(state).add(newReward));
+				}
+			}
+		}
+		return srew;
+	}
+
+	public ArrayList<Function> constructTransitionRewardsMDP(ParamModel model, RewardStruct rewStruct) throws PrismException
+	{
+		final int numStates = model.getNumStates();
+		final int numChoices = model.getNumChoices();
+		List<State> statesList = model.getStatesList();
+
+		ArrayList<Function> trew = new ArrayList<Function>(numChoices);
+		for (int i=0; i < numChoices; i++) {
+			// init with zero
+			trew.add(model.getFunctionFactory().getZero());
+		}
+
+		int numRewItems = rewStruct.getNumItems();
+		for (int rewItem = 0; rewItem < numRewItems; rewItem++) {
+			boolean isTransitionReward = rewStruct.getRewardStructItem(rewItem).isTransitionReward();
+			if (!isTransitionReward) {
+				// ignore
+				continue;
+			}
+
+			String action = rewStruct.getSynch(rewItem);
+
+			Expression expr = rewStruct.getReward(rewItem);
+			expr = (Expression) expr.deepCopy().replaceConstants(constantValues);
+			Expression guard = rewStruct.getStates(rewItem);
+
+			for (int state = 0; state < numStates; state++) {
+				if (guard.evaluateExact(constantValues, statesList.get(state)).toBoolean()) {
+					int[] varMap = new int[statesList.get(0).varValues.length];
+					for (int i = 0; i < varMap.length; i++) {
+						varMap[i] = i;
+					}
+					Expression exprState = (Expression) expr.deepCopy().evaluatePartially(statesList.get(state), varMap);
+					Function newReward = model.getModelBuilder().expr2function(model.getFunctionFactory(), exprState);
+					for (int choice = model.stateBegin(state); choice < model.stateEnd(state); choice++) {
+						// get mdpAction via label of first successor;
+						// assumes that choice label is constant for all successors
+						String mdpAction = model.getLabel(model.choiceBegin(choice));
+						if (mdpAction == null ? (action.isEmpty()) : mdpAction.equals(action)) {
+							trew.set(choice, trew.get(choice).add(newReward));
+						}
+					}
+				}
+			}
+		}
+		return trew;
+	}
+
+	public TreeMap<Integer, TreeMap<Integer, Pair<Function,Function>>> constructTransitionRewardsMC(ParamModel model, RewardStruct rewStruct) throws PrismException
+	{
+		final int numStates = model.getNumStates();
+		List<State> statesList = model.getStatesList();
+
+		TreeMap<Integer, TreeMap<Integer, Pair<Function,Function>>> tRews = new TreeMap<>();
+
+		int numRewItems = rewStruct.getNumItems();
+		for (int rewItem = 0; rewItem < numRewItems; rewItem++) {
+			boolean isTransitionReward = rewStruct.getRewardStructItem(rewItem).isTransitionReward();
+			if (!isTransitionReward) {
+				// ignore
+				continue;
+			}
+
+			String action = rewStruct.getSynch(rewItem);
+
+			Expression expr = rewStruct.getReward(rewItem);
+			expr = (Expression) expr.deepCopy().replaceConstants(constantValues);
+			Expression guard = rewStruct.getStates(rewItem);
+
+			for (int state = 0; state < numStates; state++) {
+				if (guard.evaluateExact(constantValues, statesList.get(state)).toBoolean()) {
+					int[] varMap = new int[statesList.get(0).varValues.length];
+					for (int i = 0; i < varMap.length; i++) {
+						varMap[i] = i;
+					}
+					Expression exprState = (Expression) expr.deepCopy().evaluatePartially(statesList.get(state), varMap);
+					Function newReward = model.getModelBuilder().expr2function(model.getFunctionFactory(), exprState);
+					if (newReward.isZero())
+						continue;
+
+					TreeMap<Integer, Pair<Function, Function>> tRew = tRews.get(state);
+					if (tRew == null) {
+						tRew = new TreeMap<>();
+						tRews.put(state, tRew);
+					}
+					for (int choice = model.stateBegin(state); choice < model.stateEnd(state); choice++) {
+						for (int succ = model.choiceBegin(choice); succ < model.choiceEnd(choice); succ++) {
+							String mdpAction = model.getLabel(succ);
+							if (mdpAction == null ? (action.isEmpty()) : mdpAction.equals(action)) {
+								Pair<Function, Function> pair = tRew.get(model.succState(succ));
+								if (pair == null) {
+									pair = new Pair<Function,Function>(model.getFunctionFactory().getZero(), model.getFunctionFactory().getZero());
+									tRew.put(model.succState(succ), pair);
+								}
+								pair.first = pair.first.add(newReward.multiply(model.succProb(succ)));
+								pair.second = pair.second.add(model.succProb(succ));
+//								System.out.println(state + " -> " + model.succState(succ) + ": " + newReward.multiply(model.succProb(succ)));
+//								System.out.println(model.succProb(succ));
+							}
+						}
+					}
+				}
+			}
+		}
+		return tRews;
+	}
+
 	private ParamRewardStruct constructRewards(ParamModel model, RewardStruct rewStruct, Values constantValues2)
 			throws PrismException {
+		ModelBuilder modelBuilder = model.getModelBuilder();
 		int numStates = model.getNumStates();
 		List<State> statesList = model.getStatesList();
 		ParamRewardStruct rewSimple = new ParamRewardStruct(functionFactory, model.getNumChoices());
@@ -1124,7 +1422,7 @@ final public class ParamModelChecker extends PrismComponent
 			String action = rewStruct.getSynch(rewItem);
 			boolean isTransitionReward = rewStruct.getRewardStructItem(rewItem).isTransitionReward();
 			for (int state = 0; state < numStates; state++) {
-				if (guard.evaluateBoolean(constantValues, statesList.get(state))) {
+				if (guard.evaluateExact(constantValues, statesList.get(state)).toBoolean()) {
 					int[] varMap = new int[statesList.get(0).varValues.length];
 					for (int i = 0; i < varMap.length; i++) {
 						varMap[i] = i;
@@ -1214,39 +1512,8 @@ final public class ParamModelChecker extends PrismComponent
 		return valueComputer.computeSteadyState(b, min, null);
 	}
 
-	/**
-	 * Set parameters for parametric analysis.
-	 * 
-	 * @param paramNames names of parameters
-	 * @param lower lower bounds of parameters
-	 * @param upper upper bounds of parameters
-	 */
-	public void setParameters(String[] paramNames, String[] lower, String[] upper) {
-		if (paramNames == null || lower == null || upper == null) {
-			throw new IllegalArgumentException("all arguments of this functions must be non-null");
-		}
-		if (paramNames.length != lower.length || lower.length != upper.length) {
-			throw new IllegalArgumentException("all arguments of this function must have the same length");
-		}
-		
-		paramLower = new BigRational[lower.length];
-		paramUpper = new BigRational[upper.length];
-		
-		for (int i = 0; i < paramNames.length; i++) {
-			if (paramNames[i] == null || lower[i] == null || upper[i] == null)  {
-				throw new IllegalArgumentException("all entries in arguments of this function must be non-null");
-			}
-			paramLower[i] = new BigRational(lower[i]);
-			paramUpper[i] = new BigRational(upper[i]);
-		}
-	}	
-			
 	public static void closeDown() {
 		ComputerThreads.terminate();
 	}
 
-	public void setModelBuilder(ModelBuilder builder)
-	{
-		this.modelBuilder = builder;
-	}	
 }

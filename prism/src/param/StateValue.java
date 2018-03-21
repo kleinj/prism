@@ -33,6 +33,6 @@ package param;
  * 
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
  */
-abstract class StateValue {
+public interface StateValue {
 
 }

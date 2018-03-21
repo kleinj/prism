@@ -30,7 +30,7 @@ package param;
  * TODO implement completely
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
  */
-public class DagFunction extends Function {
+public class DagFunction extends AbstractFunction {
 	private DagFunctionFactory dagFactory;
 	private DagOperator num;
 	private DagOperator den;
@@ -40,7 +40,7 @@ public class DagFunction extends Function {
 	final static int MINF = 2;
 	final static int NAN = 3;
 	
-	public DagFunction(FunctionFactory factory, DagOperator num, DagOperator den) {
+	public DagFunction(AbstractFunctionFactory factory, DagOperator num, DagOperator den) {
 		super(factory);
 		dagFactory = (DagFunctionFactory) factory;
 		this.num = num;
@@ -48,7 +48,7 @@ public class DagFunction extends Function {
 		this.type = NORMAL;
 	}
 	
-	public DagFunction(FunctionFactory factory, int type) {
+	public DagFunction(AbstractFunctionFactory factory, int type) {
 		super(factory);
 		this.type = type;
 		num = null;

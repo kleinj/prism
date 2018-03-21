@@ -34,7 +34,7 @@ import java.util.Random;
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
  * TODO complete once needed
  */
-class DagFunctionFactory extends FunctionFactory {
+class DagFunctionFactory extends AbstractFunctionFactory {
 	private class Number extends DagOperator {
 		private BigInteger number;
 		Number(BigInteger number) {
@@ -63,7 +63,7 @@ class DagFunctionFactory extends FunctionFactory {
 		
 		@Override
 		public String toString() {
-			return parameterNames[variable];
+			return parameters.getParameterName(variable);
 		}
 	}
 
@@ -130,7 +130,7 @@ class DagFunctionFactory extends FunctionFactory {
 	private HashMap<DagOperator,DagOperator> polynomials;
 	private DagOperator zeroOp;
 	private DagOperator oneOp;
-	private DagFunction[] parameters;
+	private DagFunction[] parameterFunctions;
 	private DagFunction zero;
 	private DagFunction one;
 	private DagFunction nan;
@@ -139,12 +139,12 @@ class DagFunctionFactory extends FunctionFactory {
 	private HashMap<DagFunction,DagFunction> functions;
 //	private boolean negateToInner;
 	
-	DagFunctionFactory(String[] parameterNames, BigRational[] lowerBounds, BigRational[] upperBounds, double maxProbWrong, boolean negateToInner) {
-		super(parameterNames, lowerBounds, upperBounds);
+	DagFunctionFactory(Parameters parameters, double maxProbWrong, boolean negateToInner) {
+		super(parameters);
 		Random random = new Random();
-		BigRational[] randomPosArr = new BigRational[parameterNames.length];
-		int numRandomBits = (int) Math.ceil(Math.log(parameterNames.length / maxProbWrong) / Math.log(2));
-		for (int dim = 0; dim < parameterNames.length; dim++) {
+		BigRational[] randomPosArr = new BigRational[parameters.size()];
+		int numRandomBits = (int) Math.ceil(Math.log(parameters.size() / maxProbWrong) / Math.log(2));
+		for (int dim = 0; dim < parameters.size(); dim++) {
 			BigInteger num = new BigInteger(numRandomBits, random);
 			randomPosArr[dim] = new BigRational(num, BigInteger.ONE);
 		}
@@ -166,38 +166,38 @@ class DagFunctionFactory extends FunctionFactory {
 		functions.put(inf,inf);
 		minf = new DagFunction(this, DagFunction.MINF);
 		functions.put(minf,minf);
-		parameters = new DagFunction[parameterNames.length];
-		for (int varNr = 0; varNr < parameterNames.length; varNr++) {
+		parameterFunctions = new DagFunction[parameters.size()];
+		for (int varNr = 0; varNr < parameters.size(); varNr++) {
 			DagOperator paramOp = new Variable(varNr);
 			polynomials.put(paramOp,paramOp);
-			parameters[varNr] = new DagFunction(this, paramOp, oneOp);
-			functions.put(parameters[varNr],parameters[varNr]);
+			parameterFunctions[varNr] = new DagFunction(this, paramOp, oneOp);
+			functions.put(parameterFunctions[varNr],parameterFunctions[varNr]);
 		}
 //		this.negateToInner = negateToInner;
 	}
 	
 	@Override
-	Function getZero() {
+	public Function getZero() {
 		return zero;
 	}
 	
 	@Override
-	Function getOne() {
+	public Function getOne() {
 		return one;
 	}
 
 	@Override
-	Function getNaN() {
+	public Function getNaN() {
 		return nan;
 	}
 
 	@Override
-	Function getInf() {
+	public Function getInf() {
 		return inf;
 	}
 
 	@Override
-	Function getMInf() {
+	public Function getMInf() {
 		return minf;
 	}
 	
@@ -220,7 +220,7 @@ class DagFunctionFactory extends FunctionFactory {
 	}
 	
 	@Override
-	Function fromBigRational(BigRational bigRat) {
+	public Function fromBigRational(BigRational bigRat) {
 		if (bigRat.isSpecial()) {
 			if (bigRat.isNaN()) {
 				return getNaN();
@@ -243,8 +243,8 @@ class DagFunctionFactory extends FunctionFactory {
 	}
 
 	@Override
-	Function getVar(int var) {
-		return parameters[var];
+	public Function getVar(int var) {
+		return parameterFunctions[var];
 	}
 
 	private DagOperator opMultiply(DagOperator op1, DagOperator op2) {
@@ -331,8 +331,14 @@ class DagFunctionFactory extends FunctionFactory {
 	}
 
 	public BigRational asBigRational(DagFunction op) {
-		BigRational[] point = new BigRational[parameterNames.length];
-		for (int i = 0; i < parameterNames.length; i++) {
+		if (!(isConstant(op.getNum()) && isConstant(op.getDen()))) {
+			throw new IllegalArgumentException("Can not convert non-constant function to BigRational");
+		}
+		if (!(isConstant(op.getNum()) && isConstant(op.getDen()))) {
+			throw new IllegalArgumentException("Can not convert non-constant function to BigRational");
+		}
+		BigRational[] point = new BigRational[parameters.size()];
+		for (int i = 0; i < parameters.size(); i++) {
 			point[i] = BigRational.ZERO;
 		}
 		return evaluate(op, new Point(point), true);
@@ -372,4 +378,11 @@ class DagFunctionFactory extends FunctionFactory {
 	public String toString(DagFunction op) {
 		return "(" + op.getNum().toString() + ")/(" + op.getDen().toString() + ")";
 	}
+
+	@Override
+	public String getFunctionTypeName()
+	{
+		return "dag";
+	}
+
 }

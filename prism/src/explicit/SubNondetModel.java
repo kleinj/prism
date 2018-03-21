@@ -245,7 +245,7 @@ public class SubNondetModel implements NondetModel
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(PrismLog log)
+	public void exportToPrismExplicitTra(PrismLog log, int exportType)
 	{
 		throw new UnsupportedOperationException();
 	}

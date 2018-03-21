@@ -32,7 +32,7 @@ package param;
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
  * @see CachedFunctionFactory
  */
-final class CachedFunction extends Function {
+final class CachedFunction extends AbstractFunction {
 	/** unique number of cached function this function represents */
 	private int number;
 	/** factory this function belongs to */

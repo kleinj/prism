@@ -55,8 +55,15 @@ public abstract class DTMCExplicit extends ModelExplicit implements DTMC
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(PrismLog out)
+	public void exportToPrismExplicitTra(PrismLog out, int exportType) throws PrismException
 	{
+		switch (exportType) {
+		case prism.Prism.EXPORT_PLAIN:
+		case prism.Prism.EXPORT_ROWS:
+			break;
+		default:
+			throw new PrismException("Unsupported export type");
+		}
 		int i;
 		TreeMap<Integer, Pair<Double, Object>> sorted;
 		// Output transitions to .tra file

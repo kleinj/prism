@@ -47,7 +47,7 @@ import edu.jas.ufd.Quotient;
  * @see Function
  * @see JasFunctionFactory
  */
-final class JasFunction extends Function {
+final class JasFunction extends AbstractFunction {
 	/** JAS object the function is wrapping */
 	private Quotient<BigInteger> jas;
 	/** numerator of function (stored if needed) */
@@ -305,6 +305,9 @@ final class JasFunction extends Function {
 			return BigRational.INF;
 		} else if (isMInf()) {
 			return BigRational.MINF;
+		}
+		if (!isConstant()) {
+			throw new IllegalArgumentException("Can not convert non-constant function to BigRational");
 		}
 		BigRational[] point = new BigRational[factory.getNumVariables()];
 		for (int dim = 0; dim < factory.getNumVariables(); dim++) {

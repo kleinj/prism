@@ -27,6 +27,8 @@
 
 package strat;
 
+import prism.Prism;
+import prism.PrismException;
 import prism.PrismLog;
 import explicit.MDP;
 import explicit.Model;
@@ -97,7 +99,7 @@ public class MDStrategyArray extends MDStrategy
 	// Methods for Strategy
 
 	@Override
-	public void exportInducedModel(PrismLog out)
+	public void exportInducedModel(PrismLog out) throws PrismException
 	{
 		Model dtmcInd = model.constructInducedModel(this);
 		dtmcInd.exportToPrismExplicitTra(out);

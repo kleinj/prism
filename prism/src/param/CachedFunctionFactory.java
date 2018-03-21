@@ -38,10 +38,10 @@ import java.util.HashMap;
  * looked up instead of being performed again.
  * 
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
- * @see FunctionFactory
+ * @see AbstractFunctionFactory
  * @see CachedFunction
  */
-final class CachedFunctionFactory extends FunctionFactory {
+final class CachedFunctionFactory extends AbstractFunctionFactory {
 	/**
 	 * Represents an entry of the operation cache.
 	 *
@@ -114,8 +114,8 @@ final class CachedFunctionFactory extends FunctionFactory {
 	 * 
 	 * @param context function factory to cache functions of
 	 */
-	CachedFunctionFactory(FunctionFactory context) {
-		super(context.parameterNames, context.lowerBounds, context.upperBounds);
+	CachedFunctionFactory(AbstractFunctionFactory context) {
+		super(context.parameters);
 		this.context = context;
 		functionToNumber = new HashMap<Function, Integer>();
 		cachedFunctions = new ArrayList<CachedFunction>();
@@ -326,22 +326,28 @@ final class CachedFunctionFactory extends FunctionFactory {
 	}
 
 	@Override
-	Function getNaN() {
+	public Function getNaN() {
 		return makeUnique(context.getNaN());
 	}
 
 	@Override
-	Function getInf() {
+	public Function getInf() {
 		return makeUnique(context.getInf());
 	}
 
 	@Override
-	Function getMInf() {
+	public Function getMInf() {
 		return makeUnique(context.getMInf());
 	}
 
 	@Override
-	Function getVar(int var) {
+	public Function getVar(int var) {
 		return makeUnique(context.getVar(var));
+	}
+
+	@Override
+	public String getFunctionTypeName()
+	{
+		return context.getFunctionTypeName() + "cached";
 	}
 }

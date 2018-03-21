@@ -78,8 +78,20 @@ public abstract class MDPExplicit extends ModelExplicit implements MDP
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(PrismLog out)
+	public void exportToPrismExplicitTra(PrismLog out, int exportType) throws PrismException
 	{
+		boolean rows = false;
+		switch (exportType)
+		{
+		case prism.Prism.EXPORT_PLAIN:
+			break;
+		case prism.Prism.EXPORT_ROWS:
+			rows = true;
+			break;
+		default:
+			throw new PrismException("Unsupported export type");
+		}
+
 		int i, j, numChoices;
 		Object action;
 		TreeMap<Integer, Double> sorted;
@@ -96,11 +108,21 @@ public abstract class MDPExplicit extends ModelExplicit implements MDP
 					sorted.put(e.getKey(), e.getValue());
 				}
 				// Print out (sorted) transitions
-				for (Map.Entry<Integer, Double> e : sorted.entrySet()) {
-					// Note use of PrismUtils.formatDouble to match PRISM-exported files
-					out.print(i + " " + j + " " + e.getKey() + " " + PrismUtils.formatDouble(e.getValue()));
+				if (rows) {
+					out.print(i);
+					for (Map.Entry<Integer, Double> e : sorted.entrySet()) {
+						// Note use of PrismUtils.formatDouble to match PRISM-exported files
+						out.print(" " + PrismUtils.formatDouble(e.getValue()) + ":" + e.getKey());
+					}
 					action = getAction(i, j);
 					out.print(action == null ? "\n" : (" " + action + "\n"));
+				} else {
+					for (Map.Entry<Integer, Double> e : sorted.entrySet()) {
+						// Note use of PrismUtils.formatDouble to match PRISM-exported files
+						out.print(i + " " + j + " " + e.getKey() + " " + PrismUtils.formatDouble(e.getValue()));
+						action = getAction(i, j);
+						out.print(action == null ? "\n" : (" " + action + "\n"));
+					}
 				}
 				sorted.clear();
 			}

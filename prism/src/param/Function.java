@@ -49,24 +49,11 @@ package param;
  * the objects of this class represent do not change within the parameter
  * range specified in the corresponding {@code FunctionFactory}.
  * 
- * @see FunctionFactory
+ * @see AbstractFunctionFactory
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
  */
-public abstract class Function extends StateValue
+public interface Function extends StateValue
 {
-	/** function factory for this function */
-	protected FunctionFactory factory;
-
-	/**
-	 * Creates a new function.
-	 * For internal use.
-	 * 
-	 * @param factory factory used for this function
-	 */
-	protected Function(FunctionFactory factory)
-	{
-		this.factory = factory;
-	}
 
 	/**
 	 * Adds {@code other} to this function.
@@ -186,9 +173,9 @@ public abstract class Function extends StateValue
 	 * @param number to multiply with this function
 	 * @return product of {@code} this and {@byNumber}
 	 */
-	public Function multiply(int byNumber)
+	default Function multiply(int byNumber)
 	{
-		Function byFunction = factory.fromLong(byNumber);
+		Function byFunction = getFactory().fromLong(byNumber);
 		return multiply(byFunction);
 	}
 
@@ -198,9 +185,9 @@ public abstract class Function extends StateValue
 	 * @param number to divide this function by
 	 * @return this function divided by {@code byNumber}
 	 */
-	public Function divide(int byNumber)
+	default Function divide(int byNumber)
 	{
-		Function byFunction = factory.fromLong(byNumber);
+		Function byFunction = getFactory().fromLong(byNumber);
 		return divide(byFunction);
 	}
 
@@ -209,18 +196,15 @@ public abstract class Function extends StateValue
 	 * 
 	 * @return {@code FunctionFactory} of this function
 	 */
-	public FunctionFactory getFactory()
-	{
-		return factory;
-	}
+	public FunctionFactory getFactory();
 
 	/**
-	 * Aubtracts {@code other} from this function.
+	 * Subtracts {@code other} from this function.
 	 * 
 	 * @param other function to subtract from this function
 	 * @return this function minus {@coce other}
 	 */
-	public Function subtract(Function other)
+	default Function subtract(Function other)
 	{
 		return add(other.negate());
 	}
@@ -235,7 +219,7 @@ public abstract class Function extends StateValue
 	 * @param point parameter evaluation to evaluate
 	 * @return value at the given parameter evaluation
 	 */
-	public BigRational evaluate(Point point)
+	default BigRational evaluate(Point point)
 	{
 		return evaluate(point, true);
 	}
@@ -247,7 +231,7 @@ public abstract class Function extends StateValue
 	 * @param strict true for strictly larger to zero, false for larger or equal
 	 * @return true iff value at {@code point} is (strictly) larger than zero
 	 */
-	boolean check(Point point, boolean strict)
+	default boolean check(Point point, boolean strict)
 	{
 		BigRational value = evaluate(point, false);
 		int compare = value.signum();

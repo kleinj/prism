@@ -55,20 +55,20 @@ public class ParamResult
 	/** The model builder (for accessing expr2func) */
 	private ModelBuilder modelBuilder;
 	/** The function factory used for model checking */
-	private FunctionFactory factory;
+	private FunctionFactory functionFactory;
 
 	/**
 	 * Constructor
 	 * @param regionValues the actual result
 	 * @param modelBuilder the model builder used during checking
-	 * @param factory the function factory used during checking
+	 * @param functionFactory the function factory used during checking
 	 */
-	public ParamResult(ParamMode mode, RegionValues regionValues, ModelBuilder modelBuilder, FunctionFactory factory)
+	public ParamResult(ParamMode mode, RegionValues regionValues, ModelBuilder modelBuilder, FunctionFactory functionFactory)
 	{
 		this.mode = mode;
 		this.regionValues = regionValues;
 		this.modelBuilder = modelBuilder;
-		this.factory = factory;
+		this.functionFactory = functionFactory;
 	}
 
 	/**
@@ -137,7 +137,7 @@ public class ParamResult
 			// defined constants
 			ConstantList constantList = new ConstantList(constValues);
 			// and parametric constants
-			for (String p : modelBuilder.getParameterNames()) {
+			for (String p : modelBuilder.getParameters().getParameterNames()) {
 				constantList.addConstant(new ExpressionIdent(p), null, TypeDouble.getInstance());
 			}
 			exprExcepted.findAllConstants(constantList);
@@ -172,7 +172,7 @@ public class ParamResult
 		if (propertyType.equals(TypeBool.getInstance())) {
 			// boolean result
 			boolean boolResult = regionValues.getResult(0).getInitStateValueAsBoolean();
-			boolean boolExpected = expected.evaluateBoolean();
+			boolean boolExpected = expected.evaluateExact().toBoolean();
 
 			if (boolResult != boolExpected) {
 				throw new PrismException("Wrong result (expected " + strExpected + ", got " + boolResult + ")");
@@ -181,7 +181,7 @@ public class ParamResult
 			// numeric result
 			Function funcExpected;
 			try {
-				funcExpected = modelBuilder.expr2function(factory, expected);
+				funcExpected = modelBuilder.expr2function(functionFactory, expected);
 			} catch (PrismException e) {
 				throw new PrismException("Invalid (or unsupported) RESULT specification \"" + strExpected + "\" for " + mode + " property");
 			}

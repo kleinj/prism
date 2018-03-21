@@ -33,10 +33,8 @@ import jdd.*;
 import odd.*;
 import parser.*;
 
-public interface Model
+public interface Model extends ModelBase
 {
-	ModelType getModelType();
-
 	int getNumModules();
 	String[] getModuleNames();
 	String getModuleName(int i);
@@ -51,6 +49,13 @@ public interface Model
 	int getVarRange(int i);
 	Values getConstantValues();
 	List<String> getSynchs();
+
+	public default ModelRepresentation getModelRepresentation()
+	{
+		// this is the base interface for the symbolic, MTBDD based models, so return
+		// the corresponding representation
+		return ModelRepresentation.MTBDD_DOUBLE;
+	}
 
 	/**
 	 * Returns the JDDNode for the state set (over the row variables)

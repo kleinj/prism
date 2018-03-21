@@ -184,7 +184,7 @@ public class LTSExplicit extends ModelExplicit implements LTS
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(PrismLog out)
+	public void exportToPrismExplicitTra(PrismLog out, int exportType)
 	{
 		throw new UnsupportedOperationException();
 	}

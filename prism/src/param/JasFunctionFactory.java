@@ -37,10 +37,10 @@ import edu.jas.ufd.QuotientRing;
  * Function factory class for use with {@code JasFunction}.
  * 
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
- * @see FunctionFactory
+ * @see AbstractFunctionFactory
  * @see JasFunction
  */
-final class JasFunctionFactory extends FunctionFactory {
+final class JasFunctionFactory extends AbstractFunctionFactory {
 	private GenPolynomialRing<BigInteger> jasPolyRing;
 	private QuotientRing<BigInteger> jasQuotRing;
 	private JasFunction zero;
@@ -48,23 +48,19 @@ final class JasFunctionFactory extends FunctionFactory {
 	private JasFunction nan;
 	private JasFunction inf;
 	private JasFunction minf;
-	private JasFunction[] parameters;
+	private JasFunction[] parameterFunctions;
 
 	/**
 	 * Creates a new function factory.
 	 * 
-	 * @param parameterNames names of parameters
-	 * @param lowerBounds lower bounds of parameters
-	 * @param upperBounds upper bounds of parameters
+	 * @param parameters the parameters
 	 */
-	JasFunctionFactory(String[] parameterNames, BigRational[] lowerBounds, BigRational[] upperBounds)
+	JasFunctionFactory(Parameters parameters)
 	{
-		super(parameterNames, lowerBounds, upperBounds);
-		String[] pNameReversed = new String[parameterNames.length];
-		System.arraycopy(parameterNames, 0, pNameReversed, 0, parameterNames.length);
+		super(parameters);
+		String[] pNameReversed = parameters.getParameterNames().toArray(new String[parameters.size()]);
 		Collections.reverse(Arrays.asList(pNameReversed));
-		this.parameterNames = parameterNames;
-		
+
 		BigInteger fac = new BigInteger();
 		jasPolyRing = new GenPolynomialRing<BigInteger>(fac,pNameReversed.length,pNameReversed);
 		jasQuotRing = new QuotientRing<BigInteger>(jasPolyRing);
@@ -73,9 +69,9 @@ final class JasFunctionFactory extends FunctionFactory {
 		nan = new JasFunction(this, jasQuotRing.getZERO(), JasFunction.NAN);
 		inf = new JasFunction(this, jasQuotRing.getZERO(), JasFunction.INF);
 		minf = new JasFunction(this, jasQuotRing.getZERO(), JasFunction.MINF);
-		parameters = new JasFunction[parameterNames.length];
-		for (int param = 0; param < parameterNames.length; param++) {
-			parameters[param] = new JasFunction(this, jasQuotRing.parse(parameterNames[param]), JasFunction.NORMAL);
+		parameterFunctions = new JasFunction[parameters.size()];
+		for (int param = 0; param < parameters.size(); param++) {
+			parameterFunctions[param] = new JasFunction(this, jasQuotRing.parse(parameters.getParameterName(param)), JasFunction.NORMAL);
 		}
 	}	
 
@@ -141,7 +137,14 @@ final class JasFunctionFactory extends FunctionFactory {
 	}
 
 	@Override
-	Function getVar(int var) {
-		return parameters[var];
+	public Function getVar(int var) {
+		return parameterFunctions[var];
 	}
+
+	@Override
+	public String getFunctionTypeName()
+	{
+		return "jas";
+	}
+
 }

@@ -93,6 +93,7 @@ public class PrismCL implements PrismModelListener
 	private boolean simulate = false;
 	private boolean simpath = false;
 	private boolean param = false;
+	private boolean exact = false;
 	private ModelType typeOverride = null;
 	private boolean orderingOverride = false;
 	private boolean explicitbuild = false;
@@ -197,10 +198,9 @@ public class PrismCL implements PrismModelListener
 	private Prism.StrategyExportType exportStratType = StrategyExportType.ACTIONS;
 	
 	// parametric analysis info
-	private String[] paramLowerBounds = null;
-	private String[] paramUpperBounds = null;
-	private String[] paramNames = null;
+	private param.Parameters params = null;
 
+	private boolean exactConstants = false;
 
 	/**
 	 * Entry point: call run method, catch CuddOutOfMemoryException
@@ -248,9 +248,8 @@ public class PrismCL implements PrismModelListener
 		// Sort out properties to check
 		sortProperties();
 
-		if (param && numPropertiesToCheck == 0) {
-			errorAndExit("Parametric model checking requires at least one property to check");
-		}
+		// evaluate constants exactly if we are in param or exact computation mode
+		exactConstants = param || prism.getSettings().getBoolean(PrismSettings.PRISM_EXACT_ENABLED);
 
 		// process info about undefined constants
 		try {
@@ -260,16 +259,19 @@ public class PrismCL implements PrismModelListener
 				undefinedMFConstants = new UndefinedConstants(modulesFile, propertiesFile, true);
 			else
 				undefinedMFConstants = new UndefinedConstants(modulesFile, null);
+			undefinedMFConstants.setExactMode(exactConstants);
 			undefinedConstants = new UndefinedConstants[numPropertiesToCheck];
 			for (i = 0; i < numPropertiesToCheck; i++) {
 				undefinedConstants[i] = new UndefinedConstants(modulesFile, propertiesFile, propertiesToCheck.get(i));
+				undefinedConstants[i].setExactMode(exactConstants);
 			}
 			// may need to remove some constants if they are used for parametric methods
 			if (param) {
-				undefinedMFConstants.removeConstants(paramNames);
+				undefinedMFConstants.removeConstants(params.getParameterNames());
 				for (i = 0; i < numPropertiesToCheck; i++) {
-					undefinedConstants[i].removeConstants(paramNames);
+					undefinedConstants[i].removeConstants(params.getParameterNames());
 				}
+				prism.setPRISMParametricConstants(params);
 			}
 			// then set up value using const switch definitions
 			undefinedMFConstants.defineUsingConstSwitch(constSwitch);
@@ -292,7 +294,7 @@ public class PrismCL implements PrismModelListener
 			// set values for ModulesFile constants
 			try {
 				definedMFConstants = undefinedMFConstants.getMFConstantValues();
-				prism.setPRISMModelConstants(definedMFConstants);
+				prism.setPRISMModelConstants(definedMFConstants, exactConstants);
 			} catch (PrismException e) {
 				// in case of error, report it, store as result for any properties, and go on to the next model
 				// (might happen for example if overflow or another numerical problem is detected at this stage)
@@ -366,15 +368,11 @@ public class PrismCL implements PrismModelListener
 							// Set values for PropertiesFile constants
 							if (propertiesFile != null) {
 								definedPFConstants = undefinedConstants[j].getPFConstantValues();
-								propertiesFile.setSomeUndefinedConstants(definedPFConstants);
+								propertiesFile.setSomeUndefinedConstants(definedPFConstants, exactConstants);
 							}
 							// Normal model checking
-							if (!simulate && !param) {
+							if (!simulate) {
 								res = prism.modelCheck(propertiesFile, propertiesToCheck.get(j));
-							}
-							// Parametric model checking
-							else if (param) {
-								res = prism.modelCheckParametric(propertiesFile, propertiesToCheck.get(j), paramNames, paramLowerBounds, paramUpperBounds);
 							}
 							// Approximate (simulation-based) model checking
 							else if (simulate) {
@@ -674,6 +672,25 @@ public class PrismCL implements PrismModelListener
 
 	private void doExports()
 	{
+		if (false && (param || prism.getSettings().getBoolean(PrismSettings.PRISM_EXACT_ENABLED))) {
+			if (exporttrans ||
+			    exportstaterewards ||
+			    exporttransrewards ||
+			    exportstates ||
+			    exportspy ||
+			    exportdot ||
+			    exporttransdot ||
+			    exporttransdotstates ||
+			    exportmodeldotview ||
+			    exportlabels ||
+			    exportsccs ||
+			    exportbsccs ||
+			    exportmecs) {
+				mainLog.printWarning("Skipping exports in parametric / exact model checking mode, currently not supported.");
+				return;
+			}
+		}
+
 		// export transition matrix to a file
 		if (exporttrans) {
 			try {
@@ -809,7 +826,7 @@ public class PrismCL implements PrismModelListener
 			try {
 				if (propertiesFile != null) {
 					definedPFConstants = undefinedMFConstants.getPFConstantValues();
-					propertiesFile.setSomeUndefinedConstants(definedPFConstants);
+					propertiesFile.setSomeUndefinedConstants(definedPFConstants, exactConstants);
 				}
 				File f = (exportLabelsFilename.equals("stdout")) ? null : new File(exportLabelsFilename);
 				prism.exportLabelsToFile(propertiesFile, exportType, f);
@@ -873,6 +890,11 @@ public class PrismCL implements PrismModelListener
 		File exportSteadyStateFile = null;
 
 		if (steadystate) {
+			if (param || prism.getSettings().getBoolean(PrismSettings.PRISM_EXACT_ENABLED)) {
+				mainLog.printWarning("Skipping steady-state computation in parametric / exact model checking mode, currently not supported.");
+				return;
+			}
+
 			try {
 				// Choose destination for output (file or log)
 				if (exportSteadyStateFilename == null || exportSteadyStateFilename.equals("stdout"))
@@ -898,6 +920,11 @@ public class PrismCL implements PrismModelListener
 
 		if (dotransient) {
 			try {
+				if (param || prism.getSettings().getBoolean(PrismSettings.PRISM_EXACT_ENABLED)) {
+					mainLog.printWarning("Skipping transient probability computation in parametric / exact model checking mode, currently not supported.");
+					return;
+				}
+
 				// Choose destination for output (file or log)
 				if (exportTransientFilename == null || exportTransientFilename.equals("stdout"))
 					exportTransientFile = null;
@@ -2122,23 +2149,18 @@ public class PrismCL implements PrismModelListener
 		// process info about parametric constants
 		if (param) {
 			String[] paramDefs = paramSwitch.split(",");
-			paramNames = new String[paramDefs.length];
-			paramLowerBounds = new String[paramDefs.length];
-			paramUpperBounds = new String[paramDefs.length];
-			for (int pdNr = 0; pdNr < paramDefs.length; pdNr++) {
-				if (!paramDefs[pdNr].contains("=")) {
-					paramNames[pdNr] = paramDefs[pdNr];
-					paramLowerBounds[pdNr] = "0";
-					paramUpperBounds[pdNr] = "1";
+			params = new param.Parameters();
+			for (String def : paramDefs) {
+				if (!def.contains("=")) {
+					params.addParameter(def, "0", "1");
 				} else {
-					String[] paramDefSplit = paramDefs[pdNr].split("=");
-					paramNames[pdNr] = paramDefSplit[0];
+					String[] paramDefSplit = def.split("=");
+					String paramName = paramDefSplit[0];
 					paramDefSplit[1] = paramDefSplit[1].trim();
 					String[] upperLower = paramDefSplit[1].split(":");
 					if (upperLower.length != 2)
-						throw new PrismException("Invalid range \"" + paramDefSplit[1] + "\" for parameter " + paramNames[pdNr]);
-					paramLowerBounds[pdNr] = upperLower[0].trim();
-					paramUpperBounds[pdNr] = upperLower[1].trim();
+						throw new PrismException("Invalid range \"" + paramDefSplit[1] + "\" for parameter " + paramName);
+					params.addParameter(paramName, upperLower[0].trim(), upperLower[1].trim());
 				}
 			}
 		}

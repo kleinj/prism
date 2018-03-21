@@ -132,8 +132,16 @@ public abstract class DTMCView extends ModelView implements DTMC, Cloneable
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(final PrismLog log)
+	public void exportToPrismExplicitTra(final PrismLog log, int exportType) throws PrismException
 	{
+		switch (exportType) {
+		case prism.Prism.EXPORT_PLAIN:
+		case prism.Prism.EXPORT_ROWS:
+			break;
+		default:
+			throw new PrismException("Unsupported export type");
+		}
+
 		// Output transitions to .tra file
 		log.print(getNumStates() + " " + getNumTransitions() + "\n");
 		final TreeMap<Integer, Double> sorted = new TreeMap<>();

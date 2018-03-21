@@ -39,6 +39,8 @@ import explicit.graphviz.Decorator;
 import parser.State;
 import parser.Values;
 import parser.VarList;
+import prism.ModelBase;
+import prism.ModelRepresentation;
 import prism.ModelType;
 import prism.PrismException;
 import prism.PrismFileLog;
@@ -47,14 +49,16 @@ import prism.PrismLog;
 /**
  * Interface for (abstract) classes that provide (read-only) access to an explicit-state model.
  */
-public interface Model
+public interface Model extends ModelBase
 {
 	// Accessors
 
-	/**
-	 * Get the type of this model.
-	 */
-	public ModelType getModelType();
+	public default ModelRepresentation getModelRepresentation()
+	{
+		// this is the base interface for the explicit models, so return
+		// the corresponding representation
+		return ModelRepresentation.EXPLICIT_DOUBLE;
+	}
 
 	/**
 	 * Get the number of states.
@@ -285,8 +289,16 @@ public interface Model
 	/**
 	 * Export transition matrix to explicit format readable by PRISM (i.e. a .tra file).
 	 */
-	public void exportToPrismExplicitTra(PrismLog log);
-	
+	public default void exportToPrismExplicitTra(PrismLog log) throws PrismException
+	{
+		exportToPrismExplicitTra(log, prism.Prism.EXPORT_PLAIN);
+	}
+
+	/**
+	 * Export transition matrix to explicit format readable by PRISM (i.e. a .tra file).
+	 */
+	public void exportToPrismExplicitTra(PrismLog log, int exportType) throws PrismException;
+
 	/**
 	 * Export to a dot file.
 	 * @param filename Name of file to export to

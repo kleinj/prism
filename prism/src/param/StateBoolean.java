@@ -33,7 +33,7 @@ package param;
  * 
  * @author Ernst Moritz Hahn <emhahn@cs.ox.ac.uk> (University of Oxford)
  */
-final class StateBoolean extends StateValue {
+final class StateBoolean implements StateValue {
 	private boolean value;
 
 	public StateBoolean()

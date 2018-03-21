@@ -129,7 +129,7 @@ public class LTSFromDA extends ModelExplicit implements LTS
 	}
 
 	@Override
-	public void exportToPrismExplicitTra(PrismLog out)
+	public void exportToPrismExplicitTra(PrismLog out, int exportType)
 	{
 		throw new RuntimeException("Not implemented yet");
 	}
