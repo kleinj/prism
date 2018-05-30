@@ -405,6 +405,27 @@ public class PrismUtils
 	}
 
 	/**
+	 * Normalise the given entries in the vector so that they sum to 1.
+	 * I.e., for all indizes of entries, set<br>
+	 * {@code vector[s] = vector[s] / sum}, where<br>
+	 * {@code sum = sum_{s in entries} (vector[s])
+	 * @param vector the vector
+	 * @param entries Iterable over the entries (must not contain duplicates)
+	 */
+	public static void normalise(double[] vector, IterableInt entries)
+	{
+		double sum = 0.0;
+		for (PrimitiveIterator.OfInt iter = entries.iterator(); iter.hasNext();) {
+			int state = iter.next();
+			sum += vector[state];
+		}
+		for (PrimitiveIterator.OfInt iter = entries.iterator(); iter.hasNext();) {
+			int state = iter.next();
+			vector[state] /= sum;
+		}
+	}
+
+	/**
 	 * Format a large integer, represented by a double, as a string. 
 	 */
 	public static String bigIntToString(double d)
