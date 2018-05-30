@@ -722,52 +722,58 @@ public interface DTMC extends Model
 	}
 
 	/**
-	 * @see DTMC#vmMultPowerSteadyState(double[], double[], double[], double, OfInt)
-	 */
-	public default void vmMultPowerSteadyState(double vect[], double result[], double[] diags, double deltaT, IterableInt filter)
-	{
-		vmMultPowerSteadyState(vect, result, diags, deltaT, filter.iterator());
-	}
-
-	/**
 	 * Do a vector-matrix multiplication for steady-state computation with the power method.
 	 * <p>
-	 * To guarantee convergence, it applies a precomputation on-the-fly
-	 * that yields the iteration matrix<br/>
+	 * Computes<br>
+	 * {@code result = vect * P} with matrix
 	 * {@code P = (Q * deltaT + I)} where<br/>
 	 * {@code Q} is the generator matrix,
-	 * {@code deltaT} the precomputation factor and
+	 * {@code deltaT} the preconditioning factor and
 	 * {@code I} is the the identity matrix.<br/>
-	 * Please refer to <em>"William J. Stewart: Introduction to the Numerical Solution of Markov Chains</em>" p. 124. for details.
-	 *  </p>
+	 * Please refer to <em>William J. Stewart: "Introduction to the Numerical Solution of Markov Chains"</em> p.124 for details.
+	 * </p>
+	 * <p>
+	 * If the {@code states} argument only specifies a subset of the state space,
+	 * only those entries of the {@code result} vector are modified that are either
+	 * states in {@code states} or their successors; other entries remain unchanged.
+	 * Thus, it generally only makes sense to use this method with a state sets that consists
+	 * of (the union of) bottom strongly-connected components (BSCCs).
+	 * </p>
 	 * @param vect Vector to multiply by
 	 * @param result Vector to store result in
-	 * @param diags outgoing probabilities/rates for precomputation
-	 * @param deltaT deltaT for precomputation
-	 * @param filter subset of states to consider
+	 * @param diagsQ vector of the diagonal entries of the generator matrix Q, i.e., diagsQ[s] = -sum_{s!=t} prob(s,t)
+	 * @param deltaT deltaT conditioning factor
+	 * @param states subset of states to consider
 	 */
-	public default void vmMultPowerSteadyState(double vect[], double result[], double[] diags, double deltaT, OfInt filter)
+	public default void vmMultPowerSteadyState(double vect[], double result[], double[] diagsQ, double deltaT, IterableInt states)
 	{
-		// Initialise result to 0
-		Arrays.fill(result, 0);
-		// Go through matrix elements in filter (by row)
-		while (filter.hasNext()) {
-			int state = filter.nextInt();
-			// incoming probability on diagonale: constant part
-			double diagProb = 1 - deltaT * diags[state];
-			for (Iterator<Entry<Integer, Double>> transitions = getTransitionsIterator(state); transitions.hasNext();) {
-				Entry<Integer, Double> trans = transitions.next();
-				int target  = trans.getKey();
-				double prob = trans.getValue();
-				if (state == target) {
-					// incoming probability on diagonale: actual self-loop
-					diagProb += prob;
-				} else {
-					// incoming probability from other states
-					result[target] += prob * vect[state];
+		// Recall that the generator matrix Q has entries
+		//       Q(s,s) = -sum_{t!=s} prob(s,t)
+		// and   Q(s,t) = prob(s,t)  for s!=t
+		// The values Q(s,s) are passed in via the diagsQ vector, while the
+		// values Q(s,t) correspond to the normal transitions
+
+		// Initialise result for relevant states to vect[s] * (deltaT * diagsQ[s] + 1),
+		// i.e., handle the product with the diagonal entries of (deltaT * Q) + I
+		for (OfInt it = states.iterator(); it.hasNext(); ) {
+			int state = it.nextInt();
+			result[state] = vect[state] * ((deltaT * diagsQ[state]) + 1.0);
+		}
+
+		// For each relevant state...
+		for (OfInt it = states.iterator(); it.hasNext(); ) {
+			int state = it.nextInt();
+
+			// ... handle all Q(state,t) entries of the generator matrix
+			forEachTransition(state, (s,t,prob) -> {
+				if (s==t) {
+					// ignore self loop, diagonal entries of the generator matrix handled above
+					return;
 				}
-			}
-			result[state] += diagProb * vect[state];
+				// update result vector entry for the *successor* state
+				result[t] += deltaT * prob * vect[s];
+			});
 		}
 	}
+
 }
