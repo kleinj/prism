@@ -37,6 +37,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import common.iterable.IterableInt;
+import param.BigRational;
 
 /**
  * Various general-purpose utility methods in Java
@@ -517,6 +518,17 @@ public class PrismUtils
 		// by the 0+ part
 		result = result.replaceFirst("(\\.[0-9]*?)0+(e|$)", "$1$2");
 		return result;
+	}
+
+	/**
+	 * Format a double (that is known to be an integer, but not necessarily in the int range)
+	 * to a string.<br>
+	 * Correctly handles values beyond INT_MIN/INT_MAX, as well as -Inf/Inf and NaN.
+	 */
+	public static String formatIntFromDouble(double d)
+	{
+		BigRational v = BigRational.from(d);
+		return v.toString();
 	}
 
 	/**
