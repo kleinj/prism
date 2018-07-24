@@ -1983,6 +1983,33 @@ public class Modules2MTBDD
 	}
 
 	/**
+	 * Generate an error message, tailored to the problematic state and expression(s).
+	 * Only the variable values are printed that are passed in via vars (i.e., those relevant for the expression).
+	 * If there is no meaningful message, {@code null} is returned.
+	 * @param vars the relevant variable names
+	 * @param problemState the problematic state
+	 * @return an error message (or {@code null})
+	 */
+	private String formatErrorForState(Vector<String> vars, JDDNode problemState) throws PrismLangException
+	{
+		// sort them by the variable index, i.e., the order in which the variables appear in the model
+		vars.sort((a,b) -> {return Integer.compare(varList.getIndex(a), varList.getIndex(b));});
+		String msg = null;
+		if (!vars.isEmpty()) {
+			State state = ProbModel.convertBddToState(problemState, allDDRowVars, varList);
+			msg = "in state with ";
+			boolean first = true;
+			for (String var : vars) {
+				if (!first)
+					msg += ",";
+				first = false;
+				msg += var + "=" + state.varValues[varList.getIndex(var)];
+			}
+		}
+		return msg;
+	}
+
+	/**
 	 * Translate an arbitrary expression.
 	 * <br>[ REFS: <i>result</i>, DEREFS: <i>none</i> ]
 	 * @param e the expression (AST element)
