@@ -734,8 +734,6 @@ public class Modules2MTBDD
 					tmp = JDD.And(tmp, JDD.Not(v));
 				}
 				sysDDs.ind.trans = JDD.Apply(JDD.TIMES, sysDDs.ind.trans, tmp);
-				//JDD.Ref(tmp);
-				//sysDDs.ind.rewards = JDD.Apply(JDD.TIMES, sysDDs.ind.rewards, tmp);
 				sysDDs.ind.max = max;
 			}
 			// check each synchronous bit has this many variables
@@ -748,8 +746,6 @@ public class Modules2MTBDD
 						tmp = JDD.And(tmp, JDD.Not(v));
 					}
 					sysDDs.synchs[i].trans = JDD.Apply(JDD.TIMES, sysDDs.synchs[i].trans, tmp);
-					//JDD.Ref(tmp);
-					//sysDDs.synchs[i].rewards = JDD.Apply(JDD.TIMES, sysDDs.synchs[i].rewards, tmp);
 					sysDDs.synchs[i].max = max;
 				}
 			}
@@ -760,8 +756,6 @@ public class Modules2MTBDD
 				tmp = JDD.And(tmp, JDD.Not(ddSynchVars[i].copy()));
 			}
 			sysDDs.ind.trans = JDD.Apply(JDD.TIMES, tmp, sysDDs.ind.trans);
-			//JDD.Ref(tmp);
-			//transRewards = JDD.Apply(JDD.TIMES, tmp, sysDDs.ind.rewards);
 			// synchronous bits
 			for (i = 0; i < numSynchs; i++) {
 				tmp = JDD.Constant(1);
@@ -774,8 +768,6 @@ public class Modules2MTBDD
 					}
 				}
 				sysDDs.synchs[i].trans = JDD.Apply(JDD.TIMES, tmp, sysDDs.synchs[i].trans);
-				//JDD.Ref(tmp);
-				//transRewards = JDD.Apply(JDD.PLUS, transRewards, JDD.Apply(JDD.TIMES, tmp, sysDDs.synchs[i].rewards));
 			}
 		}
 		
@@ -1143,7 +1135,6 @@ public class Modules2MTBDD
 				sysDDs.synchs[i] = new ComponentDDs();
 				sysDDs.synchs[i].guards = JDD.Constant(0);
 				sysDDs.synchs[i].trans = JDD.Constant(0);
-				//sysDDs.synchs[i].rewards = JDD.Constant(0);
 				sysDDs.synchs[i].min = 0;
 				sysDDs.synchs[i].max = 0;
 			}
@@ -1203,7 +1194,6 @@ public class Modules2MTBDD
 			sysDDs.synchs[i] = new ComponentDDs();
 			sysDDs.synchs[i].guards = JDD.Constant(0);
 			sysDDs.synchs[i].trans = JDD.Constant(0);
-			//sysDDs.synchs[i].rewards = JDD.Constant(0);
 			sysDDs.synchs[i].min = 0;
 			sysDDs.synchs[i].max = 0;
 		}
@@ -1250,14 +1240,6 @@ public class Modules2MTBDD
 		JDD.Ref(compDDs1.trans);
 		JDD.Ref(compDDs2.trans);
 		compDDs.trans = JDD.Apply(JDD.TIMES, compDDs1.trans, compDDs2.trans);
-		// then transition rewards
-		//JDD.Ref(compDDs2.trans);
-		//compDDs1.rewards = JDD.Apply(JDD.TIMES, compDDs1.rewards, JDD.GreaterThan(compDDs2.trans, 0));
-		//JDD.Ref(compDDs1.trans);
-		//compDDs2.rewards = JDD.Apply(JDD.TIMES, compDDs2.rewards, JDD.GreaterThan(compDDs1.trans, 0));
-		//JDD.Ref(compDDs1.rewards);
-		//JDD.Ref(compDDs2.rewards);
-		//compDDs.rewards = JDD.Apply(JDD.PLUS, compDDs1.rewards, compDDs2.rewards);
 		// compute new min/max
 		compDDs.min = (compDDs1.min < compDDs2.min) ? compDDs1.min : compDDs2.min;
 		compDDs.max = (compDDs1.max > compDDs2.max) ? compDDs1.max : compDDs2.max;
@@ -1267,8 +1249,6 @@ public class Modules2MTBDD
 		JDD.Deref(compDDs2.guards);
 		JDD.Deref(compDDs1.trans);
 		JDD.Deref(compDDs2.trans);
-		//JDD.Deref(compDDs1.rewards);
-		//JDD.Deref(compDDs2.rewards);
 		
 		return compDDs;
 	}
@@ -1282,13 +1262,7 @@ public class Modules2MTBDD
 		compDDs1.trans = JDD.Apply(JDD.TIMES, compDDs1.trans, id2);
 		JDD.Ref(id1);
 		compDDs2.trans = JDD.Apply(JDD.TIMES, compDDs2.trans, id1);
-		// add identities to mtbdds for transition rewards
-		//JDD.Ref(id2);
-		//compDDs1.rewards = JDD.Apply(JDD.TIMES, compDDs1.rewards, id2);
-		//JDD.Ref(id1);
-		//compDDs2.rewards = JDD.Apply(JDD.TIMES, compDDs2.rewards, id1);
 		
-		// then combine...
 		compDDs = combineComponentDDs(compDDs1, compDDs2);
 		
 		return compDDs;
@@ -1307,7 +1281,6 @@ public class Modules2MTBDD
 		if (modelType != ModelType.MDP) {
 			compDDs.guards = JDD.Or(compDDs1.guards, compDDs2.guards);
 			compDDs.trans = JDD.Apply(JDD.PLUS, compDDs1.trans, compDDs2.trans);
-			//compDDs.rewards = JDD.Apply(JDD.PLUS, compDDs1.rewards, compDDs2.rewards);
 			compDDs.min = 0;
 			compDDs.max = 0;
 		}
@@ -1317,8 +1290,6 @@ public class Modules2MTBDD
 			compDDs.guards = compDDs2.guards;
 			JDD.Deref(compDDs1.trans);
 			compDDs.trans = compDDs2.trans;
-			//JDD.Deref(compDDs1.rewards);
-			//compDDs.rewards = compDDs2.rewards;
 			compDDs.min = compDDs2.min;
 			compDDs.max = compDDs2.max;
 		}
@@ -1327,8 +1298,6 @@ public class Modules2MTBDD
 			compDDs.guards = compDDs1.guards;
 			JDD.Deref(compDDs2.trans);
 			compDDs.trans = compDDs1.trans;
-			//JDD.Deref(compDDs2.rewards);
-			//compDDs.rewards = compDDs1.rewards;
 			compDDs.min = compDDs1.min;
 			compDDs.max = compDDs1.max;
 		}
@@ -1344,8 +1313,6 @@ public class Modules2MTBDD
 					tmp = JDD.And(tmp, JDD.Not(v));
 				}
 				compDDs2.trans = JDD.Apply(JDD.TIMES, compDDs2.trans, tmp);
-				//JDD.Ref(tmp);
-				//compDDs2.rewards = JDD.Apply(JDD.TIMES, compDDs2.rewards, tmp);
 				compDDs2.max = compDDs1.max;
 			}
 			else if (compDDs2.max > compDDs1.max) {
@@ -1356,8 +1323,6 @@ public class Modules2MTBDD
 					tmp = JDD.And(tmp, JDD.Not(v));
 				}
 				compDDs1.trans = JDD.Apply(JDD.TIMES, compDDs1.trans, tmp);
-				//JDD.Ref(tmp);
-				//compDDs1.rewards = JDD.Apply(JDD.TIMES, compDDs1.rewards, tmp);
 				compDDs1.max = compDDs2.max;
 			}
 			// and then combine
@@ -1367,8 +1332,6 @@ public class Modules2MTBDD
 			compDDs.guards = JDD.Or(compDDs1.guards, compDDs2.guards);
 			JDD.Ref(v);
 			compDDs.trans = JDD.ITE(v, compDDs2.trans, compDDs1.trans);
-			//JDD.Ref(v);
-			//compDDs.rewards = JDD.ITE(v, compDDs2.rewards, compDDs1.rewards);
 			compDDs.min = compDDs1.min;
 			compDDs.max = compDDs1.max+1;
 		}
@@ -1392,8 +1355,7 @@ public class Modules2MTBDD
 		numCommands = module.getNumCommands();
 		guardDDs = new JDDNode[numCommands];
 		upDDs = new JDDNode[numCommands];
-		//rewDDs = new JDDNode[numCommands];
-		
+
 		// translate guard/updates for each command of the module
 		for (l = 0; l < numCommands; l++) {
 			command = module.getCommand(l);
@@ -1421,7 +1383,6 @@ public class Modules2MTBDD
 					// no point bothering to compute the mtbdds for the update
 					// if the guard is never satisfied
 					upDDs[l] = JDD.Constant(0);
-					//rewDDs[l] = JDD.Constant(0);
 				}
 				else {
 					// translate updates and do some checks on probs/rates
@@ -1491,28 +1452,12 @@ public class Modules2MTBDD
 						}
 						JDD.Deref(tmp);
 					}
-					// translate reward, if present
-					// if (command.getReward() != null) {
-					// 	tmp = translateExpression(command.getReward());
-					// 	JDD.Ref(upDDs[l]);
-					// 	rewDDs[l] = JDD.Apply(JDD.TIMES, tmp, JDD.GreaterThan(upDDs[l], 0));
-					// 	// are all rewards non-negative?
-					// if ((d = JDD.FindMin(rewDDs[l])) < 0) {
-					// 	String s = "Rewards in command " + (l+1) + " of module \"" + module.getName() + "\" are negative";
-					// 	s += " (" + d + ") for some states. ";
-					// 	s += "Perhaps the guard needs to be strengthened";
-					// 	throw new PrismException(s);
-					// }
-					// } else {
-					// 	rewDDs[l] = JDD.Constant(0);
-					// }
 				}
 			}
 			// otherwise use 0
 			else {
 				guardDDs[l] = JDD.Constant(0);
 				upDDs[l] = JDD.Constant(0);
-				//rewDDs[l] = JDD.Constant(0);
 			}
 		}
 		
@@ -1533,7 +1478,6 @@ public class Modules2MTBDD
 		// deref guards/updates
 		JDD.DerefArray(guardDDs, numCommands);
 		JDD.DerefArray(upDDs, numCommands);
-		//JDD.DerefArray(rewDDs, numCommands);
 		
 		return compDDs;
 	}
@@ -1546,15 +1490,12 @@ public class Modules2MTBDD
 		ComponentDDs compDDs;
 		int i;
 		JDDNode covered, transDD, tmp;
-		//JDDNode rewardsDD;
 		
 		// create object to return result
 		compDDs = new ComponentDDs();
 		
 		// use 'transDD' to build up MTBDD for transitions
 		transDD = JDD.Constant(0);
-		// use 'transDD' to build up MTBDD for rewards
-		//rewardsDD = JDD.Constant(0);
 		// use 'covered' to track states covered by guards
 		covered = JDD.Constant(0);
 		// loop thru commands...
@@ -1580,16 +1521,11 @@ public class Modules2MTBDD
 			JDD.Ref(guardDDs[i]);
 			JDD.Ref(upDDs[i]);
 			transDD = JDD.Apply(JDD.PLUS, transDD, JDD.Apply(JDD.TIMES, guardDDs[i], upDDs[i]));
-			// add rewards
-			//JDD.Ref(guardDDs[i]);
-			//JDD.Ref(rewDDs[i]);
-			//rewardsDD = JDD.Apply(JDD.PLUS, rewardsDD, JDD.Apply(JDD.TIMES, guardDDs[i], rewDDs[i]));
 		}
 		
 		// store result
 		compDDs.guards = covered;
 		compDDs.trans = transDD;
-		//compDDs.rewards = rewardsDD;
 		compDDs.min = 0;
 		compDDs.max = 0;
 		
@@ -1603,15 +1539,12 @@ public class Modules2MTBDD
 		ComponentDDs compDDs;
 		int i;
 		JDDNode covered, transDD;
-		//JDDNode rewardsDD;
 		
 		// create object to return result
 		compDDs = new ComponentDDs();
 		
 		// use 'transDD 'to build up MTBDD for transitions
 		transDD = JDD.Constant(0);
-		// use 'transDD 'to build up MTBDD for rewards
-		//rewardsDD = JDD.Constant(0);
 		// use 'covered' to track states covered by guards
 		covered = JDD.Constant(0);
 		
@@ -1628,16 +1561,11 @@ public class Modules2MTBDD
 			JDD.Ref(guardDDs[i]);
 			JDD.Ref(upDDs[i]);
 			transDD = JDD.Apply(JDD.PLUS, transDD, JDD.Apply(JDD.TIMES, guardDDs[i], upDDs[i]));
-			// add rewards
-			//JDD.Ref(guardDDs[i]);
-			//JDD.Ref(rewDDs[i]);
-			//rewardsDD = JDD.Apply(JDD.PLUS, rewardsDD, JDD.Apply(JDD.TIMES, guardDDs[i], rewDDs[i]));
 		}
 		
 		// store result
 		compDDs.guards = covered;
 		compDDs.trans = transDD;
-		//compDDs.rewards = rewardsDD;
 		compDDs.min = 0;
 		compDDs.max = 0;
 		
@@ -1653,9 +1581,7 @@ public class Modules2MTBDD
 		ComponentDDs compDDs;
 		int i, j, k, maxChoices, numDDChoiceVarsUsed;
 		JDDNode covered, transDD, overlaps, equalsi, tmp, tmp2, tmp3;
-		//JDDNode rewardsDD;
 		JDDNode[] transDDbits, frees;
-		//JDDNode[] rewardsDDbits;
 		JDDVars ddChoiceVarsUsed;
 		
 		// create object to return result
@@ -1663,8 +1589,6 @@ public class Modules2MTBDD
 		
 		// use 'transDD' to build up MTBDD for transitions
 		transDD = JDD.Constant(0);
-		// use 'transDD' to build up MTBDD for rewards
-		//rewardsDD = JDD.Constant(0);
 		// use 'covered' to track states covered by guards
 		covered = JDD.Constant(0);
 		
@@ -1686,7 +1610,6 @@ public class Modules2MTBDD
 		if (maxChoices == 0) {
 			compDDs.guards = covered;
 			compDDs.trans = transDD;
-			//compDDs.rewards = rewardsDD;
 			compDDs.min = synchMin;
 			compDDs.max = synchMin;
 			JDD.Deref(overlaps);
@@ -1701,14 +1624,9 @@ public class Modules2MTBDD
 				JDD.Ref(guardDDs[i]);
 				JDD.Ref(upDDs[i]);
 				transDD = JDD.Apply(JDD.PLUS, transDD, JDD.Apply(JDD.TIMES, guardDDs[i], upDDs[i]));
-				// add up rewards
-				//JDD.Ref(guardDDs[i]);
-				//JDD.Ref(rewDDs[i]);
-				//rewardsDD = JDD.Apply(JDD.PLUS, rewardsDD, JDD.Apply(JDD.TIMES, guardDDs[i], rewDDs[i]));
 			}
 			compDDs.guards = covered;
 			compDDs.trans = transDD;
-			//compDDs.rewards = rewardsDD;
 			compDDs.min = synchMin;
 			compDDs.max = synchMin;
 			JDD.Deref(overlaps);	
@@ -1743,11 +1661,9 @@ public class Modules2MTBDD
 			
 			// create arrays of size i to store dds
 			transDDbits = new JDDNode[i];
-			//rewardsDDbits = new JDDNode[i];
 			frees = new JDDNode[i];
 			for (j = 0; j < i; j++) {
 				transDDbits[j] = JDD.Constant(0);
-				//rewardsDDbits[j] = JDD.Constant(0);
 				frees[j] = equalsi;
 				JDD.Ref(equalsi);
 			}
@@ -1780,9 +1696,6 @@ public class Modules2MTBDD
 							JDD.Ref(tmp3);
 							JDD.Ref(upDDs[j]);
 							transDDbits[k] = JDD.Apply(JDD.PLUS, transDDbits[k], JDD.Apply(JDD.TIMES, tmp3, upDDs[j]));
-							//JDD.Ref(tmp3);
-							//JDD.Ref(rewDDs[j]);
-							//rewardsDDbits[k] = JDD.Apply(JDD.PLUS, rewardsDDbits[k], JDD.Apply(JDD.TIMES, tmp3, rewDDs[j]));
 						}
 						// take out the bit just put in this choice
 						tmp2 = JDD.And(tmp2, JDD.Not(tmp3));
@@ -1799,8 +1712,6 @@ public class Modules2MTBDD
 			for (j = 0; j < i; j++) {
 				tmp = JDD.SetVectorElement(JDD.Constant(0), ddChoiceVarsUsed, j, 1);
 				transDD = JDD.Apply(JDD.PLUS, transDD, JDD.Apply(JDD.TIMES, tmp, transDDbits[j]));
-				//JDD.Ref(tmp);
-				//rewardsDD = JDD.Apply(JDD.PLUS, rewardsDD, JDD.Apply(JDD.TIMES, tmp, rewardsDDbits[j]));
 				JDD.Deref(frees[j]);
 			}
 			
@@ -1812,7 +1723,6 @@ public class Modules2MTBDD
 		// store result
 		compDDs.guards = covered;
 		compDDs.trans = transDD;
-		//compDDs.rewards = rewardsDD;
 		compDDs.min = synchMin;
 		compDDs.max = synchMin + numDDChoiceVarsUsed;
 		
