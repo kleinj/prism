@@ -1966,20 +1966,73 @@ public class Modules2MTBDD
 		// get some info on the variable
 		int l = varList.getLow(v);
 		int h = varList.getHigh(v);
-		// create dd
-		JDDNode tmp1 = JDD.Constant(0);
-		for (int j = l; j <= h; j++) {
-			tmp1 = JDD.SetVectorElement(tmp1, varDDColVars[v], j - l, j);
+
+		// create dd for the right-hand side of the assignment (i.e., the expression)
+		JDDNode rhs = translateExpression(c.getExpression(i));
+
+		try {
+			checkUpdateElementAssignment(s, l, h, rhs, guard, c, i);
+		} catch (Exception e) {
+			JDD.Deref(rhs);
+			throw e;
 		}
-		JDDNode tmp2 = translateExpression(c.getExpression(i));
-		tmp2 = JDD.Times(tmp2, guard.copy());
-		JDDNode cl = JDD.Apply(JDD.EQUALS, tmp1, tmp2);
+		rhs = JDD.Times(rhs, guard.copy());
+
+		// create dd for the left-hand side of the assignment
+		// (encoding of the variable over the column vars)
+		JDDNode lhs = JDD.Constant(0);
+		for (int j = l; j <= h; j++) {
+			lhs = JDD.SetVectorElement(lhs, varDDColVars[v], j - l, j);
+		}
+
+		JDDNode cl = JDD.Apply(JDD.EQUALS, lhs, rhs);
 		cl = JDD.Times(cl, guard.copy());
 		// filter out bits not in range
 		cl = JDD.Times(cl, varColRangeDDs[v].copy());
 		cl = JDD.Times(cl, range.copy());
 
 		return cl;
+	}
+
+	/**
+	 * Check an Update element for an invalid assignment.
+	 * @param varName the name of the variable that is assigned to
+	 * @param l the lower value of the variable range (inclusive)
+	 * @param h the upper value of the variable range (inclusive)
+	 * @param expr the right-hand-side expression dd
+	 * @param guard the command guard
+	 * @param c the Update
+	 * @param i the element index inside the Update
+	 */
+	private void checkUpdateElementAssignment(String varName, int l, int h, JDDNode expr, JDDNode guard, Update c, int i) throws PrismLangException
+	{
+		// determine those states in the state space that would lead to a problematic assignment,
+		// i.e., one where the value is not >=l and <=h
+		JDDNode problemStates = JDD.Not(JDD.Interval(expr.copy(), l, h));
+		// states are only problematic if they satisfy the guard and the range restrictions
+		problemStates = JDD.And(problemStates, guard.copy(), range.copy());
+
+		if (!problemStates.equals(JDD.ZERO)) {
+			JDDNode problemState = JDD.RestrictToFirst(problemStates.copy(), allDDRowVars);
+			double problemValue = JDD.RestrictToFirstValue(expr.copy(), problemState.copy());
+
+			String problemValueString = PrismUtils.formatIntFromDouble(problemValue);
+			String problem;
+			if (Double.isFinite(problemValue)) {
+				problem = problemValue < l ? "Underflow" : "Overflow";
+			} else {
+				problem = "Invalid assignment";
+			}
+			String error = problem + " in assignment to \"" + varName + "\" with range [" + l + ".." + h +"]: Trying to assign value "  + problemValueString;
+			String errorCondition = formatErrorForState(c.getExpression(i).getAllVars(), problemState);
+			if (errorCondition != null) {
+				error += ", " + errorCondition;
+			}
+			JDD.Deref(problemStates, problemState);
+			throw new PrismLangException(error, c.getExpression(i));
+		}
+
+		JDD.Deref(problemStates);
 	}
 
 	/**
