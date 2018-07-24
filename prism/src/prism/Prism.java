@@ -734,6 +734,11 @@ public class Prism extends PrismComponent implements PrismSettingsListener
 		return settings.getBoolean(PrismSettings.PRISM_DO_PROB_CHECKS);
 	}
 
+	public boolean getErrorsOnlyForReachableStatesSymb()
+	{
+		return settings.getString(PrismSettings.PRISM_MODEL_ERROR_STATES_SYMB).equals("Reachable");
+	}
+
 	public double getSumRoundOff()
 	{
 		return settings.getDouble(PrismSettings.PRISM_SUM_ROUND_OFF);

@@ -307,6 +307,7 @@ public class Modules2MTBDD
 		// get symmetry reduction info
 		String s = prism.getSettings().getString(PrismSettings.PRISM_SYMM_RED_PARAMS);
 		doSymmetry = !(s == null || s == "");
+		setErrorHandling(prism.getErrorsOnlyForReachableStatesSymb());
 	}
 
 	/**

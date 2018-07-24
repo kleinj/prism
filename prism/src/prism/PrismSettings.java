@@ -80,6 +80,7 @@ public class PrismSettings implements Observer
 	public static final	String PRISM_PRE_REL					= "prism.preRel";
 	public static final	String PRISM_FIX_DEADLOCKS					= "prism.fixDeadlocks";
 	public static final	String PRISM_DO_PROB_CHECKS					= "prism.doProbChecks";
+	public static final	String PRISM_MODEL_ERROR_STATES_SYMB		= "prism.X-modelErrorStatesSymb";
 	public static final	String PRISM_SUM_ROUND_OFF					= "prism.sumRoundOff";
 	public static final	String PRISM_COMPACT						= "prism.compact";
 	public static final	String PRISM_LIN_EQ_METHOD					= "prism.linEqMethod";//"prism.iterativeMethod";
@@ -280,6 +281,8 @@ public class PrismSettings implements Observer
 																			"Automatically fix deadlocks, where necessary, when constructing probabilistic models." },
 			{ BOOLEAN_TYPE,		PRISM_DO_PROB_CHECKS,					"Do probability/rate checks",			"2.1",			new Boolean(true),															"",																							
 																			"Perform sanity checks on model probabilities/rates when constructing probabilistic models." },
+			{ CHOICE_TYPE,		PRISM_MODEL_ERROR_STATES_SYMB,			"States to take into account for model error checks (symbolic engine)?",				"4.5",			"All",																	"All,Reachable",
+																			"Which states should be taken into account to check for model errors (invalid updates, invalid probabilities/rates (symbolic engine)." },
 			{ DOUBLE_TYPE,		PRISM_SUM_ROUND_OFF,					"Probability sum threshold",					"2.1",			new Double(1.0E-5),													"0.0,",
 																			"Round-off threshold for places where doubles are summed and compared to integers (e.g. checking that probabilities sum to 1 in an update)." },							
 			{ BOOLEAN_TYPE,		PRISM_DO_SS_DETECTION,					"Use steady-state detection",			"2.1",			new Boolean(true),															"0,",																						
@@ -1193,6 +1196,20 @@ public class PrismSettings implements Observer
 		else if (sw.equals("noprobchecks")) {
 			set(PRISM_DO_PROB_CHECKS, false);
 		}
+		// Symbolic: report errors for which states?
+		else if (sw.equals("errorstatessymb")) {
+			if (i < args.length - 1) {
+				s = args[++i];
+				if (s.equals("all"))
+					set(PRISM_MODEL_ERROR_STATES_SYMB, "All");
+				else if (s.equals("reachable"))
+					set(PRISM_MODEL_ERROR_STATES_SYMB, "Reachable");
+				else
+					throw new PrismException("Unrecognised option for -" + sw + " switch (options are: all, reachable)");
+			} else {
+				throw new PrismException("No parameter specified for -" + sw + " switch");
+			}
+		}
 		// Sum round-off threshold
 		else if (sw.equals("sumroundoff")) {
 			if (i < args.length - 1) {
@@ -1806,6 +1823,7 @@ public class PrismSettings implements Observer
 		mainLog.println("-fixdl ......................... Automatically put self-loops in deadlock states [default]");
 		mainLog.println("-nofixdl ....................... Do not automatically put self-loops in deadlock states");
 		mainLog.println("-noprobchecks .................. Disable checks on model probabilities/rates");
+		mainLog.println("-errorstatessymb <x> ........... Which states to check for errors (all, reachable) [default=all]");
 		mainLog.println("-sumroundoff <x> ............... Set probability sum threshold [default: 1-e5]");
 		mainLog.println("-zerorewardcheck ............... Check for absence of zero-reward loops");
 		mainLog.println("-nossdetect .................... Disable steady-state detection for CTMC transient computations");
