@@ -1872,7 +1872,12 @@ public class Modules2MTBDD
 		n = u.getNumUpdates();
 		for (i = 0; i < n; i++) {
 			// translate a single update
-			udd = translateUpdate(m, u.getUpdate(i), synch, guard);
+			try {
+				udd = translateUpdate(m, u.getUpdate(i), synch, guard);
+			} catch (Exception|StackOverflowError e) {
+				JDD.Deref(dd);
+				throw e;
+			}
 			// check for zero update
 			warned = false;
 			if (udd.equals(JDD.ZERO)) {
@@ -1885,7 +1890,12 @@ public class Modules2MTBDD
 			// multiply by probability/rate
 			p = u.getProbability(i);
 			if (p == null) p = Expression.Double(1.0);
-			pdd = translateExpression(p);
+			try {
+				pdd = translateExpression(p);
+			} catch (Exception|StackOverflowError e) {
+				JDD.Deref(dd, udd);
+				throw e;
+			}
 			udd = JDD.Times(udd, pdd);
 			// check (again) for zero update
 			if (!warned && udd.equals(JDD.ZERO)) {
@@ -1920,8 +1930,13 @@ public class Modules2MTBDD
 		JDDNode dd = JDD.Constant(1);
 		n = c.getNumElements();
 		for (int i = 0; i < n; i++) {
-			JDDNode cl = translateUpdateElement(m, c, i, synch, guard);
-			dd = JDD.Times(dd, cl);
+			try {
+				JDDNode cl = translateUpdateElement(m, c, i, synch, guard);
+				dd = JDD.Times(dd, cl);
+			} catch (Exception|StackOverflowError e) {
+				JDD.Deref(dd);
+				throw e;
+			}
 		}
 		// if a variable from this module or a global variable
 		// does not appear in this update assume it does not change value
