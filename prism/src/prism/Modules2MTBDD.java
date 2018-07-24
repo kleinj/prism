@@ -27,8 +27,11 @@
 package prism;
 
 import java.util.Vector;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.TreeSet;
 
 import jdd.*;
 import parser.*;
@@ -127,6 +130,61 @@ public class Modules2MTBDD
 	/** Flag, tracking whether the model was already constructed (to know how much cleanup we have to do) */
 	private boolean modelWasBuilt = false;
 
+	private enum ErrorHandling {
+		RAISE_EXCEPTION,
+		ENCODE_AS_DD
+	}
+
+	private ErrorHandling invalidUpdateHandling = ErrorHandling.RAISE_EXCEPTION;
+	private ErrorHandling invalidProbRatesHandling = ErrorHandling.RAISE_EXCEPTION;
+	private ErrorHandling invalidProbRateSumHandling = ErrorHandling.RAISE_EXCEPTION;
+
+	private interface ErrorInfo
+	{
+	}
+
+	private static class ErrorInfoCommand implements ErrorInfo {
+		public int moduleIndex;
+		public int commandIndex;
+
+		public ErrorInfoCommand(int moduleIndex, int commandIndex)
+		{
+			this.moduleIndex = moduleIndex;
+			this.commandIndex = commandIndex;
+		}
+
+		@Override
+		public int hashCode()
+		{
+			final int prime = 31;
+			int result = 1;
+			result = prime * result + commandIndex;
+			result = prime * result + moduleIndex;
+			return result;
+		}
+
+		@Override
+		public boolean equals(Object obj)
+		{
+			if (this == obj)
+				return true;
+			if (obj == null)
+				return false;
+			if (getClass() != obj.getClass())
+				return false;
+			ErrorInfoCommand other = (ErrorInfoCommand) obj;
+			return commandIndex == other.commandIndex && moduleIndex == other.moduleIndex;
+		}
+	}
+
+	ArrayList<ErrorInfo> errorIndexToInfo = new ArrayList<>();
+	HashMap<ErrorInfo, Integer> errorInfoToIndex = new HashMap<>();
+
+	private JDDNode statesToErrorIndexDD;
+	private JDDNode statesWithError;
+
+	private boolean translateForSingleReachableState = false;
+
 	/** Data structure to store mtbdds for a command */
 	private static class CommandDDs
 	{
@@ -134,19 +192,31 @@ public class Modules2MTBDD
 		public JDDNode guard;
 		/** MTBDD for the updates of a command */
 		public JDDNode up;
+		/**
+		 * MTBDD encoding error states and the corresponding error indices.
+		 * I.e., this is an MTBDD from the row variables,
+		 * assigning an error index to a state if this state has an error (e.g., 
+		 * some outgoing transition with invalid updates, probabilities, ranges, ...).
+		 * A state that does not have an error gets assigned +Inf. This way,
+		 * the error MTBDDs can be combined using JDD.Min; lower error indices
+		 * thus have precedence.
+		 */
+		public JDDNode error;
 
-		/** Constructor, assigning ZERO to guard and up */
+		/** Constructor, assigning ZERO to guard and up, +Inf to error */
 		public CommandDDs()
 		{
 			guard = JDD.Constant(0.0);
 			up = JDD.Constant(0.0);
+			error = JDD.PLUS_INFINITY.copy();
 		}
 
 		/** Constructor */
-		public CommandDDs(JDDNode guardDD, JDDNode upDD)
+		public CommandDDs(JDDNode guardDD, JDDNode upDD, JDDNode errorDD)
 		{
 			this.guard = guardDD;
 			this.up = upDD;
+			this.error = errorDD;
 		}
 
 		/** Deref the dds (if not null) */
@@ -154,7 +224,30 @@ public class Modules2MTBDD
 		{
 			JDD.DerefNonNull(guard);
 			JDD.DerefNonNull(up);
+			JDD.DerefNonNull(error);
 		}
+	}
+
+	/** Data structure to store mtbdds for an update */
+	private static class UpdateDDs {
+		/** MTBDD for the updates */
+		public JDDNode up;
+		/**
+		 * BDD encoding error states, i.e., those where some update
+		 * would result in an invalid assignment.
+		 */
+		public JDDNode error;
+
+		public UpdateDDs(JDDNode up, JDDNode error)
+		{
+			this.up = up;
+			this.error = error;
+		}
+
+		public void clear() {
+			JDD.DerefNonNull(up, error);
+		}
+
 	}
 
 	/**
@@ -167,6 +260,8 @@ public class Modules2MTBDD
 		public JDDNode guards;
 		/** MTBDD for transitions */
 		public JDDNode trans;
+		/** MTBDD for error states to error index mapping (+Inf = no error) */
+		public JDDNode error;
 		/** MTBDD for each reward structure */
 		public JDDNode rewards[];
 		/** minimal index of dd vars used for local nondeterminism */
@@ -213,7 +308,21 @@ public class Modules2MTBDD
 		String s = prism.getSettings().getString(PrismSettings.PRISM_SYMM_RED_PARAMS);
 		doSymmetry = !(s == null || s == "");
 	}
-	
+
+	/**
+	 * How should modelling errors (invalid updates, rates, probabilities, ...)
+	 * be handled?
+	 * @param onlyReachable true for error checking only for reachable states and
+	 *                      enabled commands
+	 */
+	public void setErrorHandling(boolean onlyReachable)
+	{
+		ErrorHandling h = onlyReachable ? ErrorHandling.ENCODE_AS_DD : ErrorHandling.RAISE_EXCEPTION;
+		invalidUpdateHandling = h;
+		invalidProbRatesHandling = h;
+		invalidProbRateSumHandling = h;
+	}
+
 	@SuppressWarnings("unchecked") // for clone of vector in translate()
 
 	// main method - translate
@@ -351,6 +460,47 @@ public class Modules2MTBDD
 				mainLog.print("Reach: " + JDD.GetNumNodes(model.getReach()) + " nodes\n");
 			}
 
+			// we now check if an error state is reachable and handle this case
+			JDDNode reachableErrorStates = JDD.And(model.getReach().copy(), statesWithError.copy());
+			if (!reachableErrorStates.equals(JDD.ZERO)) {
+				// at least one state with an error is reachable, find it and obtain error index
+				JDDNode errorStateDD = JDD.RestrictToFirst(reachableErrorStates.copy(), allDDRowVars);
+				int errorIndex = (int)JDD.RestrictToFirstValue(statesToErrorIndexDD.copy(), errorStateDD.copy());
+
+				JDD.Deref(reachableErrorStates);
+
+				ErrorInfo errorInfo = errorIndexToInfo(errorIndex);
+				if (errorInfo instanceof ErrorInfoCommand) {
+					// there was a problem with a specific command from this state,
+					// e.g., an invalid update, probability or rate, probability sum, ...
+					// identify this particular command and then do a second translation
+					// of it, in the context of the error state and with error handling
+					// done via exceptions
+					int m = ((ErrorInfoCommand)errorInfo).moduleIndex;
+					int l = ((ErrorInfoCommand)errorInfo).commandIndex;
+
+					invalidUpdateHandling = ErrorHandling.RAISE_EXCEPTION;
+					invalidProbRatesHandling = ErrorHandling.RAISE_EXCEPTION;
+					invalidProbRateSumHandling = ErrorHandling.RAISE_EXCEPTION;
+
+					Module module = modulesFile.getModule(m);
+					Command command = module.getCommand(l);
+
+					translateForSingleReachableState = true;
+					try {
+						translateCommand(m, module, l, command, errorStateDD);
+					} finally {
+						JDD.Deref(errorStateDD);
+					}
+				} else {
+					State errorState = model.convertBddToState(errorStateDD);
+					JDD.Deref(errorStateDD);
+					throw new PrismException("Unknown error in reachable state " + errorState.toString(modulesFile));
+				}
+			} else {
+				JDD.Deref(reachableErrorStates);
+			}
+
 			// symmetrification
 			if (doSymmetry) doSymmetry(model);
 
@@ -389,6 +539,8 @@ public class Modules2MTBDD
 		JDD.DerefArrayNonNull(ddSynchVars);
 		JDD.DerefArrayNonNull(ddSchedVars);
 		JDD.DerefArrayNonNull(ddChoiceVars);
+		JDD.DerefNonNull(statesToErrorIndexDD);
+		JDD.DerefNonNull(statesWithError);
 
 		if (doSymmetry) {
 			JDD.Deref(symm);
@@ -938,13 +1090,23 @@ public class Modules2MTBDD
 				break;
 			}
 		}
-		
+
+		// error information is obtained by combining the error information over all actions
+		statesToErrorIndexDD = sysDDs.ind.error.copy();
+		for (i = 0; i < numSynchs; i++) {
+			statesToErrorIndexDD = JDD.Min(statesToErrorIndexDD, sysDDs.synchs[i].error.copy());
+		}
+		// the states with errors are then those that have a command index attached (i.e., < +Inf)
+		statesWithError = JDD.LessThan(statesToErrorIndexDD.copy(), Double.POSITIVE_INFINITY);
+
 		// deref bits of ComponentDD objects - we don't need them any more
 		JDD.Deref(sysDDs.ind.guards);
 		JDD.Deref(sysDDs.ind.trans);
+		JDD.Deref(sysDDs.ind.error);
 		for (i = 0; i < numSynchs; i++) {
 			JDD.Deref(sysDDs.synchs[i].guards);
 			JDD.Deref(sysDDs.synchs[i].trans);
+			JDD.Deref(sysDDs.synchs[i].error);
 		}
 		JDD.Deref(sysDDs.id);
 	}
@@ -1225,6 +1387,7 @@ public class Modules2MTBDD
 				sysDDs.synchs[i] = new ComponentDDs();
 				sysDDs.synchs[i].guards = JDD.Constant(0);
 				sysDDs.synchs[i].trans = JDD.Constant(0);
+				sysDDs.synchs[i].error = JDD.PLUS_INFINITY.copy();
 				sysDDs.synchs[i].min = 0;
 				sysDDs.synchs[i].max = 0;
 			}
@@ -1284,6 +1447,7 @@ public class Modules2MTBDD
 			sysDDs.synchs[i] = new ComponentDDs();
 			sysDDs.synchs[i].guards = JDD.Constant(0);
 			sysDDs.synchs[i].trans = JDD.Constant(0);
+			sysDDs.synchs[i].error = JDD.PLUS_INFINITY.copy();
 			sysDDs.synchs[i].min = 0;
 			sysDDs.synchs[i].max = 0;
 		}
@@ -1333,7 +1497,19 @@ public class Modules2MTBDD
 		// compute new min/max
 		compDDs.min = (compDDs1.min < compDDs2.min) ? compDDs1.min : compDDs2.min;
 		compDDs.max = (compDDs1.max > compDDs2.max) ? compDDs1.max : compDDs2.max;
-		
+
+		// combine error state mapping
+		compDDs.error = JDD.Min(compDDs1.error, compDDs2.error);
+		// but only for those states that still have outgoing transitions...
+		if (!compDDs.error.equals(JDD.PLUS_INFINITY)) {
+			JDDNode trans01 = JDD.GreaterThan(compDDs.trans.copy(), 0);
+			JDDNode tmp = JDD.ThereExists(trans01, allDDColVars);
+			if (allDDNondetVars != null) {
+				tmp = JDD.ThereExists(tmp, allDDNondetVars);
+			}
+			compDDs.error = JDD.ITE(tmp, compDDs.error, JDD.PLUS_INFINITY.copy());
+		}
+
 		// deref old stuff
 		JDD.Deref(compDDs1.guards);
 		JDD.Deref(compDDs2.guards);
@@ -1366,7 +1542,10 @@ public class Modules2MTBDD
 		
 		// create object to store result
 		compDDs = new ComponentDDs();
-		
+
+		// we can simply combine the error mapping from both components
+		compDDs.error = JDD.Min(compDDs1.error, compDDs2.error);
+
 		// if no nondeterminism - just add
 		if (modelType != ModelType.MDP) {
 			compDDs.guards = JDD.Or(compDDs1.guards, compDDs2.guards);
@@ -1458,7 +1637,7 @@ public class Modules2MTBDD
 			// if so translate
 			if (match) {
 				// store in array
-				commandsDDs[l] = translateCommand(m, module, l, command);
+				commandsDDs[l] = translateCommand(m, module, l, command, null);
 			}
 			// otherwise use 0
 			else {
@@ -1489,12 +1668,17 @@ public class Modules2MTBDD
 	 * Translate a command to a CommandDDs.
 	 * <br>[ REFs: <i>result</i> ]
 	 */
-	private CommandDDs translateCommand(int m, parser.ast.Module module, int l, Command command) throws PrismException
+	private CommandDDs translateCommand(int m, parser.ast.Module module, int l, Command command, JDDNode extraGuard) throws PrismException
 	{
-		JDDNode guardDD, upDD = null;
+		JDDNode guardDD, upDD = null, errorDD = null;
+
 		// translate guard
 		guardDD = translateExpression(command.getGuard());
 		guardDD = JDD.Times(guardDD, range.copy());
+		if (extraGuard != null) {
+			guardDD = JDD.And(guardDD, extraGuard.copy());
+		}
+
 		// check for false guard
 		if (guardDD.equals(JDD.ZERO)) {
 			// display a warning (unless guard is "false", in which case was probably intentional
@@ -1505,21 +1689,41 @@ public class Modules2MTBDD
 			// no point bothering to compute the mtbdds for the update
 			// if the guard is never satisfied
 			upDD = JDD.Constant(0);
+			// no errors, either
+			errorDD = JDD.PLUS_INFINITY.copy();
 		}
 		else {
 			// translate updates and do some checks on probs/rates
+			UpdateDDs up = null;
 			try {
-				upDD = translateUpdates(m, l, command.getUpdates(), (command.getSynch()=="")?false:true, guardDD);
-				upDD = JDD.Times(upDD, guardDD.copy());
+				up = translateUpdates(m, l, command.getUpdates(), (command.getSynch()=="")?false:true, guardDD);
+				up.up = JDD.Times(up.up, guardDD.copy());
 
-				checkCommandProbRates(m, module, l, command, guardDD, upDD);
+				JDDNode errorStates = checkCommandProbRates(m, module, l, command, guardDD, up.up);
+				errorStates = JDD.Or(errorStates, up.error.copy());
+
+				upDD = up.up.copy();
+				if (!errorStates.equals(JDD.ZERO)) {
+					// at least some states have an error for this command
+					// generate new error info and store encode the mapping
+					// from the error states to this error index
+					int errorIndex = errorInfoToIndex(new ErrorInfoCommand(m, l));
+					errorDD = JDD.ITE(errorStates, JDD.Constant(errorIndex), JDD.PLUS_INFINITY.copy());
+				} else {
+					JDD.Deref(errorStates);
+					errorDD = JDD.PLUS_INFINITY.copy();
+				}
 			} catch (Throwable e) {
-				JDD.DerefNonNull(guardDD, upDD);
+				JDD.DerefNonNull(guardDD, upDD, errorDD);
 				throw e;
+			} finally {
+				if (up != null) {
+					up.clear();
+				}
 			}
 		}
 
-		return new CommandDDs(guardDD, upDD);
+		return new CommandDDs(guardDD, upDD, errorDD);
 	}
 
 	/**
@@ -1531,70 +1735,98 @@ public class Modules2MTBDD
 	 * @param command the Command AST element
 	 * @param guardDD the guard dd
 	 * @param upDD the update dd
+	 * @return 
 	 */
-	private void checkCommandProbRates(int m, parser.ast.Module module, int l, Command command, JDDNode guardDD, JDDNode upDD) throws PrismLangException
+	private JDDNode checkCommandProbRates(int m, parser.ast.Module module, int l, Command command, JDDNode guardDD, JDDNode upDD) throws PrismLangException
 	{
-		// are all probs/rates non-negative?
-		double dmin = JDD.FindMin(upDD);
-		if (dmin < 0) {
+		JDDNode errorStates = JDD.Constant(0);
+
+		// only do checks if 'doprobchecks' flag is set
+		if (!prism.getDoProbChecks()) {
+			return errorStates;
+		}
+
+		// sum probs/rates in updates
+		JDDNode sum = JDD.SumAbstract(upDD.copy(), moduleDDColVars[m]);
+		sum = JDD.SumAbstract(sum, globalDDColVars);
+		// put 1s in for sums which are not covered by this guard
+		sum = JDD.ITE(guardDD.copy(), sum, JDD.Constant(1));
+
+		if (modelType == ModelType.CTMC) {
+			// rates sum to a value that is not positive
+			errorStates = JDD.Or(errorStates, JDD.Not(JDD.GreaterThan(sum.copy(), 0.0)));
+			// rates sum to a value that is not finite
+			errorStates = JDD.Or(errorStates, JDD.Not(JDD.LessThan(sum.copy(), Double.POSITIVE_INFINITY)));
+		} else {
+			// probabilities sum to a value not in 1 +/- sumRoundOff
+			errorStates = JDD.Or(errorStates, JDD.Not(JDD.Interval(sum.copy(), 1.0 - prism.getSumRoundOff(), 1.0 + prism.getSumRoundOff())));
+		}
+
+		// only an error if the state satisfies the guard of this command
+		errorStates = JDD.And(errorStates, guardDD.copy());
+
+		switch (invalidProbRateSumHandling) {
+		case ENCODE_AS_DD:
+			JDD.Deref(sum);
+			return errorStates;
+
+		case RAISE_EXCEPTION: {
+			if (errorStates.equals(JDD.ZERO)) {
+				JDD.Deref(sum);
+				return errorStates;
+			}
+
+			JDDNode errorState = JDD.RestrictToFirst(errorStates.copy(), allDDRowVars);
+			double errorValue = JDD.RestrictToFirstValue(sum.copy(), errorState.copy());
+			JDD.Deref(sum);
+
 			String s = (modelType == ModelType.CTMC) ? "Rates" : "Probabilities";
-			s += " in command " + (l+1) + " of module \"" + module.getName() + "\" are negative";
-			s += " (" + dmin + ") for some states.\n";
-			s += "Perhaps the guard needs to be strengthened";
+			s += " in command " + (l+1) + " of module \"" + module.getName() + "\"";
+
+			if (Double.isNaN(errorValue)) {
+				s += " sum to an invalid value (NaN)";
+			} else if (errorValue < 0.0) {
+				// should be caught before during check of individual probabilities/rates
+				// but does not hurt to have handling here as well
+				s += " sum to a negative value (" + PrismUtils.formatDouble(errorValue) + ")";
+			} else if (errorValue == 0.0) {
+				s += " sum to zero";
+			} else if (modelType != ModelType.CTMC && errorValue > 1.0) {
+				s += " sum to more than one (" + PrismUtils.formatDouble(errorValue) + ")";
+			} else if (modelType != ModelType.CTMC && errorValue < 1.0) {
+				s += " sum to less than one (" + PrismUtils.formatDouble(errorValue) + ")";
+			} else {
+				s += " sum to invalid value (" + PrismUtils.formatDouble(errorValue) + ")";
+			}
+
+			String condition;
+			if (translateForSingleReachableState) {
+				condition = formatErrorForState(null, errorState);
+			} else {
+				TreeSet<String> vars = new TreeSet<>();
+				for (int i = 0, n = command.getUpdates().getNumUpdates(); i < n; i++) {
+					Expression p = command.getUpdates().getProbability(i);
+					if (p != null) {
+						vars.addAll(p.getAllVars());
+					}
+				}
+				Vector<String> vvars = new Vector<>();
+				vvars.addAll(vars);
+				condition = formatErrorForState(vvars, errorState);
+			}
+			if (condition != null) {
+				s += ", " + condition;
+			}
+
+			if (!translateForSingleReachableState) {
+				s += "Perhaps the guard needs to be strengthened";
+			}
+
+			JDD.Deref(errorStates, errorState);
 			throw new PrismLangException(s, command);
 		}
-		// only do remaining checks if 'doprobchecks' flag is set
-		if (prism.getDoProbChecks()) {
-			// sum probs/rates in updates
-			JDDNode tmp = JDD.SumAbstract(upDD.copy(), moduleDDColVars[m]);
-			tmp = JDD.SumAbstract(tmp, globalDDColVars);
-			// put 1s in for sums which are not covered by this guard
-			tmp = JDD.ITE(guardDD.copy(), tmp, JDD.Constant(1));
-			// compute min/max sums
-			dmin = JDD.FindMin(tmp);
-			double dmax = JDD.FindMax(tmp);
-			// check sums for NaNs (note how to check if x=NaN i.e. x!=x)
-			if (dmin != dmin || dmax != dmax) {
-				JDD.Deref(tmp);
-				String s = (modelType == ModelType.CTMC) ? "Rates" : "Probabilities";
-				s += " in command " + (l+1) + " of module \"" + module.getName() + "\" have errors (NaN) for some states. ";
-				s += "Check for zeros in divide or modulo operations. ";
-				s += "Perhaps the guard needs to be strengthened";
-				throw new PrismLangException(s, command);
-			}
-			// check min sums - 1 (ish) for dtmcs/mdps, 0 for ctmcs
-			if (modelType != ModelType.CTMC && dmin < 1-prism.getSumRoundOff()) {
-				JDD.Deref(tmp);
-				String s = "Probabilities in command " + (l+1) + " of module \"" + module.getName() + "\" sum to less than one";
-				s += " (e.g. " + dmin + ") for some states. ";
-				s += "Perhaps some of the updates give out-of-range values. ";
-				s += "One possible solution is to strengthen the guard";
-				throw new PrismLangException(s, command);
-			}
-			if (modelType == ModelType.CTMC && dmin <= 0) {
-				JDD.Deref(tmp);
-				// note can't sum to less than zero - already checked for negative rates above
-				String s = "Rates in command " + (l+1) + " of module \"" + module.getName() + "\" sum to zero for some states. ";
-				s += "Perhaps some of the updates give out-of-range values. ";
-				s += "One possible solution is to strengthen the guard";
-				throw new PrismLangException(s, command);
-			}
-			// check max sums - 1 (ish) for dtmcs/mdps, infinity for ctmcs
-			if (modelType != ModelType.CTMC && dmax > 1+prism.getSumRoundOff()) {
-				JDD.Deref(tmp);
-				String s = "Probabilities in command " + (l+1) + " of module \"" + module.getName() + "\" sum to more than one";
-				s += " (e.g. " + dmax + ") for some states. ";
-				s += "Perhaps the guard needs to be strengthened";
-				throw new PrismLangException(s, command);
-			}
-			if (modelType == ModelType.CTMC && dmax == Double.POSITIVE_INFINITY) {
-				JDD.Deref(tmp);
-				String s = "Rates in command " + (l+1) + " of module \"" + module.getName() + "\" sum to infinity for some states. ";
-				s += "Perhaps the guard needs to be strengthened";
-				throw new PrismLangException(s, command);
-			}
-			JDD.Deref(tmp);
 		}
+		throw new RuntimeException("Unhandled case in switch");
 	}
 
 	/**
@@ -1608,13 +1840,15 @@ public class Modules2MTBDD
 	{
 		ComponentDDs compDDs;
 		int i;
-		JDDNode covered, transDD, tmp;
+		JDDNode covered, transDD, errorDD, tmp;
 		
 		// create object to return result
 		compDDs = new ComponentDDs();
 		
 		// use 'transDD' to build up MTBDD for transitions
 		transDD = JDD.Constant(0);
+		// use 'errorDD' to build up MTBDD for error states to error index mapping (+Inf = no error in this state)
+		errorDD = JDD.PLUS_INFINITY.copy();
 		// use 'covered' to track states covered by guards
 		covered = JDD.Constant(0);
 		// loop thru commands...
@@ -1639,11 +1873,14 @@ public class Modules2MTBDD
 			covered = JDD.Or(covered, guardDD.copy());
 			// add transitions
 			transDD = JDD.Plus(transDD, JDD.Times(guardDD.copy(), upDD.copy()));
+			// combine error mapping
+			errorDD = JDD.Min(errorDD, commandsDDs[i].error.copy());
 		}
 		
 		// store result
 		compDDs.guards = covered;
 		compDDs.trans = transDD;
+		compDDs.error = errorDD;
 		compDDs.min = 0;
 		compDDs.max = 0;
 		
@@ -1660,13 +1897,16 @@ public class Modules2MTBDD
 	{
 		ComponentDDs compDDs;
 		int i;
-		JDDNode covered, transDD;
+		JDDNode covered, transDD, errorDD;
 		
 		// create object to return result
 		compDDs = new ComponentDDs();
 		
 		// use 'transDD 'to build up MTBDD for transitions
 		transDD = JDD.Constant(0);
+		// use 'errorDD' to build up MTBDD for error states to error index mapping (+Inf = no error in this state)
+		errorDD = JDD.PLUS_INFINITY.copy();
+
 		// use 'covered' to track states covered by guards
 		covered = JDD.Constant(0);
 		
@@ -1684,11 +1924,14 @@ public class Modules2MTBDD
 			covered = JDD.Or(covered, guardDD.copy());
 			// add transitions
 			transDD = JDD.Plus(transDD, JDD.Times(guardDD.copy(), upDD.copy()));
+			// combine error mapping
+			errorDD = JDD.Min(errorDD, commandsDDs[i].error.copy());
 		}
 		
 		// store result
 		compDDs.guards = covered;
 		compDDs.trans = transDD;
+		compDDs.error = errorDD;
 		compDDs.min = 0;
 		compDDs.max = 0;
 		
@@ -1708,7 +1951,7 @@ public class Modules2MTBDD
 	{
 		ComponentDDs compDDs;
 		int i, j, k, maxChoices, numDDChoiceVarsUsed;
-		JDDNode covered, transDD, overlaps, equalsi, tmp, tmp2, tmp3;
+		JDDNode covered, transDD, errorDD, overlaps, equalsi, tmp, tmp2, tmp3;
 		JDDNode[] transDDbits, frees;
 		JDDVars ddChoiceVarsUsed;
 		
@@ -1717,6 +1960,8 @@ public class Modules2MTBDD
 		
 		// use 'transDD' to build up MTBDD for transitions
 		transDD = JDD.Constant(0);
+		// use 'errorDD' to build up MTBDD for error states to error index mapping (+Inf = no error in this state)
+		errorDD = JDD.PLUS_INFINITY.copy();
 		// use 'covered' to track states covered by guards
 		covered = JDD.Constant(0);
 
@@ -1739,12 +1984,13 @@ public class Modules2MTBDD
 		if (maxChoices == 0) {
 			compDDs.guards = covered;
 			compDDs.trans = transDD;
+			compDDs.error = errorDD;
 			compDDs.min = synchMin;
 			compDDs.max = synchMin;
 			JDD.Deref(overlaps);
 			return compDDs;
 		}
-		
+
 		// likewise, if there are no overlaps, it's also pretty easy
 		if (maxChoices == 1) {
 			// add up dds for all commands
@@ -1753,9 +1999,12 @@ public class Modules2MTBDD
 				JDDNode upDD = commandsDDs[i].up;
 				// add up transitions
 				transDD = JDD.Plus(transDD, JDD.Times(guardDD.copy(), upDD.copy()));
+				// combine error mapping
+				errorDD = JDD.Min(errorDD, commandsDDs[i].error.copy());
 			}
 			compDDs.guards = covered;
 			compDDs.trans = transDD;
+			compDDs.error = errorDD;
 			compDDs.min = synchMin;
 			compDDs.max = synchMin;
 			JDD.Deref(overlaps);	
@@ -1774,7 +2023,12 @@ public class Modules2MTBDD
 				throw new PrismException("Insufficient BDD variables allocated for nondeterminism - please report this as a bug. Thank you.");
 			ddChoiceVarsUsed.addVar(ddChoiceVars[ddChoiceVars.length-synchMin-numDDChoiceVarsUsed+i]);
 		}
-		
+
+		// combine errors from all commands
+		for (i = 0; i < numCommands; i++) {
+			errorDD = JDD.Min(errorDD, commandsDDs[i].error.copy());
+		}
+
 		// for each i (i = 1 ... max number of nondet. choices)
 		for (i = 1; i <= maxChoices; i++) {
 			
@@ -1844,6 +2098,7 @@ public class Modules2MTBDD
 		// store result
 		compDDs.guards = covered;
 		compDDs.trans = transDD;
+		compDDs.error = errorDD;
 		compDDs.min = synchMin;
 		compDDs.max = synchMin + numDDChoiceVarsUsed;
 		
@@ -1859,23 +2114,28 @@ public class Modules2MTBDD
 	 * @param synch true if this command is synchronising (named action)
 	 * @param guard the guard
 	 */
-	private JDDNode translateUpdates(int m, int l, Updates u, boolean synch, JDDNode guard) throws PrismException
+	private UpdateDDs translateUpdates(int m, int l, Updates u, boolean synch, JDDNode guard) throws PrismException
 	{
 		int i, n;
 		Expression p;
-		JDDNode dd, udd;
+		JDDNode dd, errorDD, udd;
+		UpdateDDs updateDDs;
 		boolean warned;
 		String msg;
 		
 		// sum up over possible updates
 		dd = JDD.Constant(0);
+		// union of all the states where some update results in an error (invalid assignment, prob/rate, ...) 
+		errorDD = JDD.Constant(0.0);
 		n = u.getNumUpdates();
 		for (i = 0; i < n; i++) {
 			// translate a single update
 			try {
-				udd = translateUpdate(m, u.getUpdate(i), synch, guard);
+				updateDDs = translateUpdate(m, u.getUpdate(i), synch, guard);
+				udd = updateDDs.up;
+				errorDD = JDD.Or(errorDD, updateDDs.error);
 			} catch (Exception|StackOverflowError e) {
-				JDD.Deref(dd);
+				JDD.Deref(dd, errorDD);
 				throw e;
 			}
 			// check for zero update
@@ -1893,9 +2153,10 @@ public class Modules2MTBDD
 			JDDNode pdd = null;
 			try {
 				pdd = translateExpression(p);
-				checkUpdateProbRates(m, l, p, pdd, guard);
+				JDDNode e = checkUpdateProbRates(m, l, p, pdd, guard);
+				errorDD = JDD.Or(errorDD, e);
 			} catch (Exception|StackOverflowError e) {
-				JDD.Deref(dd, udd);
+				JDD.Deref(dd, udd, errorDD);
 				JDD.DerefNonNull(pdd);
 				throw e;
 			}
@@ -1910,7 +2171,7 @@ public class Modules2MTBDD
 			dd = JDD.Plus(dd, udd);
 		}
 		
-		return dd;
+		return new UpdateDDs(dd, errorDD);
 	}
 
 	/**
@@ -1918,14 +2179,18 @@ public class Modules2MTBDD
 	 * Checks that probabilities and rates are non-negative and that the
 	 * probabilities are &lt;= 1 (if prob checks are active).
 	 * <br>
-	 * Throws an exception if the probability/rate is invalid.
+	 * If configured to raise exception on error, throws an exception.
+	 * Otherwise, just returns the set of states (satisfying the guard) that
+	 * would result in an invalid update.
+	 * <br>[ REFS: <i>none</i>, DEREFS: <i>none</i> ]
 	 * @param m the module index
 	 * @param l the command index
 	 * @param probExpr the probability/rate expression AST element
 	 * @param pdd the probability/rate expression dd
 	 * @param guard the command's guard dd (includes range restrictions on the state variables)
+	 * @return 0/1-MTBDD of states where executing this update results in an error
 	 */
-	private void checkUpdateProbRates(int m, int l, Expression probExpr, JDDNode pdd, JDDNode guard) throws PrismLangException
+	private JDDNode checkUpdateProbRates(int m, int l, Expression probExpr, JDDNode pdd, JDDNode guard) throws PrismLangException
 	{
 		JDDNode okStates;
 		if (modelType == ModelType.CTMC || !prism.getDoProbChecks()) {
@@ -1937,24 +2202,30 @@ public class Modules2MTBDD
 		}
 		JDDNode problemStates = JDD.And(JDD.Not(okStates), guard.copy());
 
-		if (!problemStates.equals(JDD.ZERO)) {
-			JDDNode problemState = JDD.RestrictToFirst(problemStates.copy(), allDDRowVars);
-			double problemValue = JDD.RestrictToFirstValue(pdd.copy(), problemState.copy());
+		switch (invalidProbRatesHandling) {
+		case ENCODE_AS_DD:
+			return problemStates;
 
-			String error = "Invalid ";
-			error += (modelType == ModelType.CTMC) ? "rate" : "probability";
-			error += " (" + PrismUtils.formatDouble(problemValue) + ")";
-			error += " in command " + (l+1) + " of module \"" + moduleNames[m] + "\"";
-			String errorCondition = formatErrorForState(probExpr.getAllVars(), problemState);
-			if (errorCondition != null) {
-				error += " " + errorCondition;
+		case RAISE_EXCEPTION:
+			if (!problemStates.equals(JDD.ZERO)) {
+				JDDNode problemState = JDD.RestrictToFirst(problemStates.copy(), allDDRowVars);
+				double problemValue = JDD.RestrictToFirstValue(pdd.copy(), problemState.copy());
+
+				String error = "Invalid ";
+				error += (modelType == ModelType.CTMC) ? "rate" : "probability";
+				error += " (" + PrismUtils.formatDouble(problemValue) + ")";
+				error += " in command " + (l+1) + " of module \"" + moduleNames[m] + "\"";
+				String errorCondition = formatErrorForState(probExpr.getAllVars(), problemState);
+				if (errorCondition != null) {
+					error += " " + errorCondition;
+				}
+
+				JDD.Deref(problemStates, problemState);
+				throw new PrismLangException(error, probExpr);
 			}
-
-			JDD.Deref(problemStates, problemState);
-			throw new PrismLangException(error, probExpr);
+			return problemStates;
 		}
-
-		JDD.Deref(problemStates);
+		throw new RuntimeException("Unhandled case in switch");
 	}
 
 	/**
@@ -1965,7 +2236,7 @@ public class Modules2MTBDD
 	 * @param synch true if this command is synchronising (named action)
 	 * @param guard the guard
 	 */
-	private JDDNode translateUpdate(int m, Update c, boolean synch, JDDNode guard) throws PrismException
+	private UpdateDDs translateUpdate(int m, Update c, boolean synch, JDDNode guard) throws PrismException
 	{
 		int n;
 		
@@ -1975,13 +2246,15 @@ public class Modules2MTBDD
 		}
 		// take product of clauses
 		JDDNode dd = JDD.Constant(1);
+		JDDNode errorDD = JDD.Constant(0);
 		n = c.getNumElements();
 		for (int i = 0; i < n; i++) {
 			try {
-				JDDNode cl = translateUpdateElement(m, c, i, synch, guard);
-				dd = JDD.Times(dd, cl);
+				UpdateDDs udd = translateUpdateElement(m, c, i, synch, guard);
+				dd = JDD.Times(dd, udd.up);
+				errorDD = JDD.Or(errorDD, udd.error);
 			} catch (Exception|StackOverflowError e) {
-				JDD.Deref(dd);
+				JDD.Deref(dd, errorDD);
 				throw e;
 			}
 		}
@@ -1994,7 +2267,7 @@ public class Modules2MTBDD
 			}
 		}
 		
-		return dd;
+		return new UpdateDDs(dd, errorDD);
 	}
 
 	/**
@@ -2006,7 +2279,7 @@ public class Modules2MTBDD
 	 * @param synch true if this command is synchronising (named action)
 	 * @param guard the guard for this command
 	 */
-	private JDDNode translateUpdateElement(int m, Update c, int i, boolean synch, JDDNode guard) throws PrismException
+	private UpdateDDs translateUpdateElement(int m, Update c, int i, boolean synch, JDDNode guard) throws PrismException
 	{
 		// get variable
 		String s = c.getVar(i);
@@ -2032,8 +2305,9 @@ public class Modules2MTBDD
 		// create dd for the right-hand side of the assignment (i.e., the expression)
 		JDDNode rhs = translateExpression(c.getExpression(i));
 
+		JDDNode errorDD;
 		try {
-			checkUpdateElementAssignment(s, l, h, rhs, guard, c, i);
+			errorDD = checkUpdateElementAssignment(s, l, h, rhs, guard, c, i);
 		} catch (Exception e) {
 			JDD.Deref(rhs);
 			throw e;
@@ -2053,11 +2327,16 @@ public class Modules2MTBDD
 		cl = JDD.Times(cl, varColRangeDDs[v].copy());
 		cl = JDD.Times(cl, range.copy());
 
-		return cl;
+		return new UpdateDDs(cl, errorDD);
 	}
 
 	/**
 	 * Check an Update element for an invalid assignment.
+	 * <br>
+	 * If configured to raise exception on error, throws an exception.
+	 * Otherwise, just returns the set of states (satisfying the guard) that
+	 * would result in an invalid update.
+	 * <br>[ REFS: <i>none</i>, DEREFS: <i>none</i> ]
 	 * @param varName the name of the variable that is assigned to
 	 * @param l the lower value of the variable range (inclusive)
 	 * @param h the upper value of the variable range (inclusive)
@@ -2065,36 +2344,44 @@ public class Modules2MTBDD
 	 * @param guard the command guard
 	 * @param c the Update
 	 * @param i the element index inside the Update
+	 * @return 0/1-MTBDD of states where executing this update results in an error
 	 */
-	private void checkUpdateElementAssignment(String varName, int l, int h, JDDNode expr, JDDNode guard, Update c, int i) throws PrismLangException
+	private JDDNode checkUpdateElementAssignment(String varName, int l, int h, JDDNode expr, JDDNode guard, Update c, int i) throws PrismLangException
 	{
 		// determine those states in the state space that would lead to a problematic assignment,
 		// i.e., one where the value is not >=l and <=h
-		JDDNode problemStates = JDD.Not(JDD.Interval(expr.copy(), l, h));
+		JDDNode errorStates = JDD.Not(JDD.Interval(expr.copy(), l, h));
 		// states are only problematic if they satisfy the guard and the range restrictions
-		problemStates = JDD.And(problemStates, guard.copy(), range.copy());
+		errorStates = JDD.And(errorStates, guard.copy(), range.copy());
 
-		if (!problemStates.equals(JDD.ZERO)) {
-			JDDNode problemState = JDD.RestrictToFirst(problemStates.copy(), allDDRowVars);
-			double problemValue = JDD.RestrictToFirstValue(expr.copy(), problemState.copy());
+		switch (invalidUpdateHandling) {
+		case ENCODE_AS_DD:
+			return errorStates;
 
-			String problemValueString = PrismUtils.formatIntFromDouble(problemValue);
-			String problem;
-			if (Double.isFinite(problemValue)) {
-				problem = problemValue < l ? "Underflow" : "Overflow";
-			} else {
-				problem = "Invalid assignment";
+		case RAISE_EXCEPTION:
+			if (!errorStates.equals(JDD.ZERO)) {
+				JDDNode errorState = JDD.RestrictToFirst(errorStates.copy(), allDDRowVars);
+				double invalidValue = JDD.RestrictToFirstValue(expr.copy(), errorState.copy());
+
+				// we can only overflow/underflow for int variables, bools should be safe
+				String invalidValueString = PrismUtils.formatIntFromDouble(invalidValue);
+				String problem;
+				if (Double.isFinite(invalidValue)) {
+					problem = invalidValue < l ? "Underflow" : "Overflow";
+				} else {
+					problem = "Invalid assignment";
+				}
+				String error = problem + " in assignment to \"" + varName + "\" with range [" + l + ".." + h +"]: Trying to assign value "  + invalidValueString;
+				String errorCondition = formatErrorForState(c.getExpression(i).getAllVars(), errorState);
+				if (errorCondition != null) {
+					error += ", " + errorCondition;
+				}
+				JDD.Deref(errorStates, errorState);
+				throw new PrismLangException(error, c.getExpression(i));
 			}
-			String error = problem + " in assignment to \"" + varName + "\" with range [" + l + ".." + h +"]: Trying to assign value "  + problemValueString;
-			String errorCondition = formatErrorForState(c.getExpression(i).getAllVars(), problemState);
-			if (errorCondition != null) {
-				error += ", " + errorCondition;
-			}
-			JDD.Deref(problemStates, problemState);
-			throw new PrismLangException(error, c.getExpression(i));
+			return errorStates;
 		}
-
-		JDD.Deref(problemStates);
+		throw new RuntimeException("Unhandled case in switch");
 	}
 
 	/**
@@ -2107,6 +2394,12 @@ public class Modules2MTBDD
 	 */
 	private String formatErrorForState(Vector<String> vars, JDDNode problemState) throws PrismLangException
 	{
+		if (translateForSingleReachableState) {
+			String msg = "in reachable state ";
+			msg += ProbModel.convertBddToState(problemState, allDDRowVars, varList).toString(modulesFile);
+			return msg;
+		}
+
 		// sort them by the variable index, i.e., the order in which the variables appear in the model
 		vars.sort((a,b) -> {return Integer.compare(varList.getIndex(a), varList.getIndex(b));});
 		String msg = null;
@@ -2122,6 +2415,30 @@ public class Modules2MTBDD
 			}
 		}
 		return msg;
+	}
+
+	/**
+	 * Returns a unique index for the given ErrorInfo.
+	 * If an equivalent ErrorInfo was already registered (determined via HashMap),
+	 * returns the index of that one.
+	 */
+	private int errorInfoToIndex(ErrorInfo info)
+	{
+		int index = errorInfoToIndex.computeIfAbsent(info, (key) -> {return errorIndexToInfo.size();});
+		if (index == errorIndexToInfo.size()) {
+			// was newly added to map, so we store the reverse as well...
+			errorIndexToInfo.add(info);
+		}
+		return index;
+	}
+
+	/**
+	 * Returns the ErrorInfo corresponding to the error index,
+	 * or {@code null} if that index has no registered ErrorInfo.
+	 */
+	private ErrorInfo errorIndexToInfo(int i)
+	{
+		return errorIndexToInfo.get(i);
 	}
 
 	/**
