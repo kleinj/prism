@@ -1491,7 +1491,7 @@ public class Modules2MTBDD
 	 */
 	private CommandDDs translateCommand(int m, parser.ast.Module module, int l, Command command) throws PrismException
 	{
-		JDDNode guardDD, upDD;
+		JDDNode guardDD, upDD = null;
 		// translate guard
 		guardDD = translateExpression(command.getGuard());
 		guardDD = JDD.Times(guardDD, range.copy());
@@ -1508,13 +1508,13 @@ public class Modules2MTBDD
 		}
 		else {
 			// translate updates and do some checks on probs/rates
-			upDD = translateUpdates(m, l, command.getUpdates(), (command.getSynch()=="")?false:true, guardDD);
-			upDD = JDD.Times(upDD, guardDD.copy());
-
 			try {
+				upDD = translateUpdates(m, l, command.getUpdates(), (command.getSynch()=="")?false:true, guardDD);
+				upDD = JDD.Times(upDD, guardDD.copy());
+
 				checkCommandProbRates(m, module, l, command, guardDD, upDD);
 			} catch (Throwable e) {
-				JDD.Deref(guardDD, upDD);
+				JDD.DerefNonNull(guardDD, upDD);
 				throw e;
 			}
 		}
@@ -1863,7 +1863,7 @@ public class Modules2MTBDD
 	{
 		int i, n;
 		Expression p;
-		JDDNode dd, udd, pdd;
+		JDDNode dd, udd;
 		boolean warned;
 		String msg;
 		
@@ -1890,10 +1890,13 @@ public class Modules2MTBDD
 			// multiply by probability/rate
 			p = u.getProbability(i);
 			if (p == null) p = Expression.Double(1.0);
+			JDDNode pdd = null;
 			try {
 				pdd = translateExpression(p);
+				checkUpdateProbRates(m, l, p, pdd, guard);
 			} catch (Exception|StackOverflowError e) {
 				JDD.Deref(dd, udd);
+				JDD.DerefNonNull(pdd);
 				throw e;
 			}
 			udd = JDD.Times(udd, pdd);
@@ -1908,6 +1911,50 @@ public class Modules2MTBDD
 		}
 		
 		return dd;
+	}
+
+	/**
+	 * Check the probability/rate for one Updates part of a command for validity.
+	 * Checks that probabilities and rates are non-negative and that the
+	 * probabilities are &lt;= 1 (if prob checks are active).
+	 * <br>
+	 * Throws an exception if the probability/rate is invalid.
+	 * @param m the module index
+	 * @param l the command index
+	 * @param probExpr the probability/rate expression AST element
+	 * @param pdd the probability/rate expression dd
+	 * @param guard the command's guard dd (includes range restrictions on the state variables)
+	 */
+	private void checkUpdateProbRates(int m, int l, Expression probExpr, JDDNode pdd, JDDNode guard) throws PrismLangException
+	{
+		JDDNode okStates;
+		if (modelType == ModelType.CTMC || !prism.getDoProbChecks()) {
+			// for CTMCs and if prob checks are disabled, only check that prob/rate is non-negative
+			okStates = JDD.GreaterThanEquals(pdd.copy(), 0.0);
+		} else {
+			// TODO: can we get rid of 1+epsilon here?
+			okStates = JDD.Interval(pdd.copy(), 0.0, 1.0 + prism.getSumRoundOff());
+		}
+		JDDNode problemStates = JDD.And(JDD.Not(okStates), guard.copy());
+
+		if (!problemStates.equals(JDD.ZERO)) {
+			JDDNode problemState = JDD.RestrictToFirst(problemStates.copy(), allDDRowVars);
+			double problemValue = JDD.RestrictToFirstValue(pdd.copy(), problemState.copy());
+
+			String error = "Invalid ";
+			error += (modelType == ModelType.CTMC) ? "rate" : "probability";
+			error += " (" + PrismUtils.formatDouble(problemValue) + ")";
+			error += " in command " + (l+1) + " of module \"" + moduleNames[m] + "\"";
+			String errorCondition = formatErrorForState(probExpr.getAllVars(), problemState);
+			if (errorCondition != null) {
+				error += " " + errorCondition;
+			}
+
+			JDD.Deref(problemStates, problemState);
+			throw new PrismLangException(error, probExpr);
+		}
+
+		JDD.Deref(problemStates);
 	}
 
 	/**
