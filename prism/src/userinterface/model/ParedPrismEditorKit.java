@@ -102,7 +102,7 @@ class ParedPrismEditorKit extends DefaultEditorKit
 
 	static class PrismView extends PlainView
 	{
-
+		static boolean firstFloatDrawing = true;
 		static final Style PLAIN_S = new Style(Color.black, Font.PLAIN);
 
 		public PrismView(Element element)
@@ -110,8 +110,14 @@ class ParedPrismEditorKit extends DefaultEditorKit
 			super(element);
 		}
 
-		protected int drawUnselectedText(Graphics g, int x, int y, int p0, int p1) throws BadLocationException
+		@Override
+		protected float drawUnselectedText(Graphics2D g, float x, float y, int p0, int p1) throws BadLocationException
 		{
+			if (firstFloatDrawing) {
+				System.out.println("... and using float drawing of text.");
+				firstFloatDrawing = false;
+			}
+
 			int stLine = p0;// findStartOfLine(p0, getDocument());
 			int enLine = p1;// findEndOfLine(p1-1, getDocument());
 
@@ -167,8 +173,14 @@ class ParedPrismEditorKit extends DefaultEditorKit
 			return x;
 		}
 
-		protected int drawSelectedText(Graphics g, int x, int y, int p0, int p1) throws BadLocationException
+		@Override
+		protected float drawSelectedText(Graphics2D g, float x, float y, int p0, int p1) throws BadLocationException
 		{
+			if (firstFloatDrawing) {
+				System.out.println("... and using float drawing of text.");
+				firstFloatDrawing = false;
+			}
+
 			int stLine = p0;// findStartOfLine(p0, getDocument());
 			int enLine = p1;// findEndOfLine(p1-1, getDocument());
 

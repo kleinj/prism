@@ -3,8 +3,8 @@ build: prism/src/userinterface/model/*.java
 	rm -rf build-cursor-test
 	mkdir -p build-cursor-test
 	javac -sourcepath prism/src \
-	  -source 8 \
-	  -target 8 \
+	  -source 9 \
+	  -target 9 \
 	  -d build-cursor-test \
 	  prism/src/userinterface/model/GUIParedDownEditor.java
-	 cd build-cursor-test && jar cfe ../cursor-test-jdk8.jar userinterface.model.GUIParedDownEditor */*/*.class
+	 cd build-cursor-test && jar cfe ../cursor-test-jdk9.jar userinterface.model.GUIParedDownEditor */*/*.class
