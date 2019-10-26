@@ -10,6 +10,7 @@ import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.UIManager;
+import javax.swing.WindowConstants;
 import javax.swing.plaf.metal.MetalLookAndFeel;
 import javax.swing.plaf.metal.MetalTheme;
 import javax.swing.text.DefaultEditorKit;
@@ -87,6 +88,7 @@ public class GUIParedDownEditor extends JPanel
 
 		frame.add(e);
 		frame.pack();
+		frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 
 		frame.setVisible(true);
 	}
